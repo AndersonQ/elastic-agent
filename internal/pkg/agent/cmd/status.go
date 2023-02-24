@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -107,6 +109,11 @@ func outputState(w io.Writer, state *client.AgentState) error {
 	} else {
 		fmt.Fprint(w, "Components:\n")
 		tw := tabwriter.NewWriter(w, 4, 1, 2, ' ', 0)
+
+		sort.Slice(state.Components, func(i, j int) bool {
+			return strings.ToLower(state.Components[i].ID) < strings.ToLower(state.Components[j].ID)
+		})
+
 		for _, comp := range state.Components {
 			fmt.Fprintf(tw, "  * %s\t(%s)\n", comp.Name, comp.State)
 			if comp.Message == "" {

@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -418,6 +419,10 @@ func getLogLevel(rawCfg *config.Config, cfgPath string) (logp.Level, error) {
 }
 
 func printComponents(components []component.Component, streams *cli.IOStreams) error {
+	sort.Slice(components, func(i, j int) bool {
+		return strings.ToLower(components[i].ID) < strings.ToLower(components[j].ID)
+	})
+
 	topLevel := struct {
 		Components []component.Component `yaml:"components"`
 	}{
