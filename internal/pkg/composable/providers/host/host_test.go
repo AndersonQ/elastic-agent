@@ -121,6 +121,8 @@ func TestFQDNFeatureFlagToggle(t *testing.T) {
 	go func() {
 		err = provider.Run(comm)
 	}()
+	// poke the scheduler to run the goroutine starting the provider
+	runtime.Gosched()
 
 	// Trigger the FQDN feature flag callback by
 	// toggling the FQDN feature flag
