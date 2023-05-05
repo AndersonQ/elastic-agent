@@ -81,6 +81,11 @@ func (h *Diagnostics) collectDiag(ctx context.Context, action *fleetapi.ActionDi
 		}
 	}()
 	defer func() {
+		if action.Err != nil {
+			h.log.Errorf("diagnostics action id %s failed: %v",
+				action.ActionID, action.Err)
+		}
+
 		err := ack.Ack(ctx, action)
 		if err != nil {
 			h.log.Errorw(
@@ -91,7 +96,6 @@ func (h *Diagnostics) collectDiag(ctx context.Context, action *fleetapi.ActionDi
 		err = ack.Commit(ctx)
 		if err != nil {
 			h.log.Errorf("failed to commit diagnostics action ack: %v", err)
-
 		}
 	}()
 
@@ -104,9 +108,7 @@ func (h *Diagnostics) collectDiag(ctx context.Context, action *fleetapi.ActionDi
 	h.log.Debug("Gathering agent diagnostics.")
 	aDiag, err := h.runHooks(ctx)
 	if err != nil {
-		action.Err = err
-		h.log.Errorf(
-			"diagnostics action handler failed to run diagnostics hooks: %v",
+		action.Err = fmt.Errorf("failed to run diagnostics hooks: %w",
 			err)
 		return
 	}
@@ -130,9 +132,7 @@ func (h *Diagnostics) collectDiag(ctx context.Context, action *fleetapi.ActionDi
 		}()
 		err := diagnostics.ZipArchive(&wBuf, &b, aDiag, uDiag)
 		if err != nil {
-			action.Err = err
-			h.log.Errorf(
-				"diagnostics action handler failed generate zip archive: %v",
+			action.Err = fmt.Errorf("failed to generate zip archive: %w",
 				err)
 			return
 		}
@@ -157,12 +157,9 @@ func (h *Diagnostics) collectDiag(ctx context.Context, action *fleetapi.ActionDi
 	h.log.Debug("Sending diagnostics archive.")
 	uploadID, err := h.uploader.UploadDiagnostics(
 		ctx, action.ActionID, ts.Format("2006-01-02T15-04-05Z07-00"), s, r) // RFC3339 format that uses - instead of : so it works on Windows
-	action.Err = err
 	action.UploadID = uploadID
 	if err != nil {
-		h.log.Errorf(
-			"diagnostics action handler failed to upload diagnostics: %v",
-			err)
+		action.Err = fmt.Errorf("failed to upload diagnostics: %w", err)
 		return
 	}
 	h.log.Debugf("Diagnostics action '%+v' complete.", action)
