@@ -5,6 +5,7 @@
 package logger
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -71,6 +72,18 @@ func NewWithoutConfig(name string) *Logger {
 	return logp.NewLogger(name)
 }
 
+// NewToBuffer returns a new logger that logs to buffer.
+// It's intended to be used for testing.
+func NewToBuffer(name string, buffer *bytes.Buffer) *Logger {
+	encoderConfig := zap.NewProductionEncoderConfig()
+	encoder := zapcore.NewJSONEncoder(encoderConfig)
+	writeSyncer := zapcore.AddSync(buffer)
+
+	return logp.NewLogger(name, zap.WrapCore(func(_ zapcore.Core) zapcore.Core {
+		return zapcore.NewCore(encoder, writeSyncer, zapcore.DebugLevel)
+	}))
+}
+
 func new(name string, cfg *Config, logInternal bool) (*Logger, error) {
 	commonCfg, err := ToCommonConfig(cfg)
 	if err != nil {
@@ -133,7 +146,7 @@ func DefaultLoggingConfig() *Config {
 	return &cfg
 }
 
-// makeInternalFileOutput creates a zapcore.Core logger that cannot be changed with configuration.
+// MakeInternalFileOutput creates a zapcore.Core logger that cannot be changed with configuration.
 //
 // This is the logger that the spawned filebeat expects to read the log file from and ship to ES.
 func MakeInternalFileOutput(cfg *Config) (zapcore.Core, error) {
