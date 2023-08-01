@@ -94,7 +94,6 @@ func TestProxyURL_EnrollProxyAndNoProxyInThePolicy(t *testing.T) {
 		Local: false,
 		Sudo:  true,
 	})
-	t.Skip("Flaky test: https://github.com/elastic/elastic-agent/issues/3154")
 
 	p := SetupTest(t)
 	t.Cleanup(func() {
@@ -138,7 +137,6 @@ func TestProxyURL_EnrollProxyAndEmptyProxyInThePolicy(t *testing.T) {
 		Local: false,
 		Sudo:  true,
 	})
-	t.Skip("Flaky test: https://github.com/elastic/elastic-agent/issues/3154")
 
 	p := SetupTest(t)
 	t.Cleanup(func() {
@@ -183,7 +181,6 @@ func TestProxyURL_ProxyInThePolicyTakesPrecedence(t *testing.T) {
 		Local: false,
 		Sudo:  true,
 	})
-	t.Skip("Flaky test: https://github.com/elastic/elastic-agent/issues/3154")
 
 	p := SetupTest(t)
 	t.Cleanup(func() {
@@ -242,7 +239,6 @@ func TestProxyURL_NoEnrollProxyAndProxyInThePolicy(t *testing.T) {
 		Local: false,
 		Sudo:  true,
 	})
-	t.Skip("Flaky test: https://github.com/elastic/elastic-agent/issues/3154")
 
 	p := SetupTest(t)
 	t.Cleanup(func() {
@@ -305,7 +301,6 @@ func TestProxyURL_RemoveProxyFromThePolicy(t *testing.T) {
 		Local: false,
 		Sudo:  true,
 	})
-	t.Skip("Flaky test: https://github.com/elastic/elastic-agent/issues/3154")
 
 	p := SetupTest(t)
 	t.Cleanup(func() {
