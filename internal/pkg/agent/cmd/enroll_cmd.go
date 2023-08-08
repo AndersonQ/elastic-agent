@@ -234,7 +234,7 @@ func (c *enrollCmd) Execute(ctx context.Context, streams *cli.IOStreams) error {
 		// Ensure that the agent does not use a proxy configuration
 		// when connecting to the local fleet server.
 		// Note that when running fleet-server the enroll request will be sent to :8220,
-		// however when the agent is running afterwards requests will be sent to :8221
+		// however when the agent is running afterward requests will be sent to :8221
 		c.remoteConfig.Transport.Proxy.Disable = true
 	}
 
@@ -255,7 +255,7 @@ func (c *enrollCmd) Execute(ctx context.Context, streams *cli.IOStreams) error {
 
 	err = c.enrollWithBackoff(ctx, persistentConfig)
 	if err != nil {
-		return errors.New(err, "fail to enroll")
+		return fmt.Errorf("fail to enroll: %w", err)
 	}
 
 	if c.options.FixPermissions {
@@ -266,17 +266,23 @@ func (c *enrollCmd) Execute(ctx context.Context, streams *cli.IOStreams) error {
 	}
 
 	defer func() {
-		fmt.Fprintln(streams.Out, "Successfully enrolled the Elastic Agent.")
+		if err != nil {
+			fmt.Fprintln(streams.Out, "Successfully enrolled the Elastic Agent.")
+		} else {
+			fmt.Fprintf(streams.Out, "Something went wrong while enrolling the Elastic Agent: %v\n", err)
+		}
 	}()
 
 	if c.agentProc == nil {
-		if c.daemonReload(ctx) != nil {
-			c.log.Info("Elastic Agent might not be running; unable to trigger restart")
-		} else {
-			c.log.Info("Successfully triggered restart on running Elastic Agent.")
+		if err = c.daemonReloadWithBackoff(ctx); err != nil {
+			c.log.Errorf("Elastic Agent might not be running; unable to trigger restart: %v", err)
+			return fmt.Errorf("could not reload agent deamon, unable to trigger restart: %v", err)
 		}
+
+		c.log.Info("Successfully triggered restart on running Elastic Agent.")
 		return nil
 	}
+
 	c.log.Info("Elastic Agent has been enrolled; start Elastic Agent")
 	return nil
 }
@@ -477,8 +483,20 @@ func (c *enrollCmd) enrollWithBackoff(ctx context.Context, persistentConfig map[
 
 	c.log.Infof("Starting enrollment to URL: %s", c.client.URI())
 	err := c.enroll(ctx, persistentConfig)
+	if err == nil {
+		return nil
+	}
+
+	const deadline = 10 * time.Minute
+	const frequency = 60 * time.Second
+
+	c.log.Infof("1st enrollment attempt failed, retrying for %s each %s enrolling to URL: %s",
+		deadline,
+		frequency,
+		c.client.URI())
 	signal := make(chan struct{})
-	backExp := backoff.NewExpBackoff(signal, 60*time.Second, 10*time.Minute)
+	defer close(signal)
+	backExp := backoff.NewExpBackoff(signal, frequency, deadline)
 
 	for {
 		retry := false
@@ -497,7 +515,6 @@ func (c *enrollCmd) enrollWithBackoff(ctx context.Context, persistentConfig map[
 		err = c.enroll(ctx, persistentConfig)
 	}
 
-	close(signal)
 	return err
 }
 
@@ -546,8 +563,10 @@ func (c *enrollCmd) enroll(ctx context.Context, persistentConfig map[string]inte
 			c.options.FleetServer.ElasticsearchInsecure,
 		)
 		if err != nil {
-			return err
+			return fmt.Errorf(
+				"failed creating fleet-server bootstrap config: %w", err)
 		}
+
 		// no longer need bootstrap at this point
 		serverConfig.Server.Bootstrap = false
 		fleetConfig.Server = serverConfig.Server
@@ -567,11 +586,11 @@ func (c *enrollCmd) enroll(ctx context.Context, persistentConfig map[string]inte
 
 	reader, err := yamlToReader(configToStore)
 	if err != nil {
-		return err
+		return fmt.Errorf("yamlToReader failed: %w", err)
 	}
 
 	if err := safelyStoreAgentInfo(c.configStore, reader); err != nil {
-		return err
+		return fmt.Errorf("failed to store agent config: %w", err)
 	}
 
 	// clear action store
