@@ -97,8 +97,16 @@ func (DebianRunner) Copy(ctx context.Context, sshClient *ssh.Client, logger Logg
 	if err != nil {
 		return fmt.Errorf("failed to SCP repo archive %s: %w", repoArchive, err)
 	}
+
 	// ensure that agent directory is removed (possible it already exists if instance already used)
-	_, _, _ = sshRunCommand(ctx, sshClient, "rm", []string{"-rf", "agent"}, nil)
+	stdout, stderr, err := sshRunCommand(ctx,
+		sshClient, "sudo", []string{"rm", "-rf", "agent"}, nil)
+	if err != nil {
+		_ = fmt.Errorf(
+			"failed to remove agent directory before unziping new one: %w. stdout: %q, stderr: %q",
+			err, stdout, stderr)
+	}
+
 	stdOut, errOut, err := sshRunCommand(ctx, sshClient, "unzip", []string{destRepoName, "-d", "agent"}, nil)
 	if err != nil {
 		return fmt.Errorf("failed to unzip %s to agent directory: %w (stdout: %s, stderr: %s)", destRepoName, err, stdOut, errOut)
