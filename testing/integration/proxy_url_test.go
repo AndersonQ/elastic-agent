@@ -157,6 +157,10 @@ func TestProxyURL_ProxyInThePolicyTakesPrecedence(t *testing.T) {
 	_ = define.Require(t, define.Requirements{
 		Local: false,
 		Sudo:  true,
+		OS: []define.OS{{
+			Type: define.Linux,
+			Arch: define.AMD64,
+		}},
 	})
 
 	p := SetupTest(t)
@@ -186,6 +190,8 @@ func TestProxyURL_ProxyInThePolicyTakesPrecedence(t *testing.T) {
 				URL:             p.fleetNeedsProxyHost,
 				EnrollmentToken: "anythingWillDO",
 			}})
+	t.Log("installation logs:")
+	t.Log(string(out))
 	if err != nil {
 		t.Log(string(out))
 		require.NoError(t, err, "failed to install agent")
