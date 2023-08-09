@@ -45,7 +45,7 @@ import (
 )
 
 const (
-	maxRetriesstoreAgentInfo       = 5
+	maxRetriesStoreAgentInfo       = 5
 	waitingForAgent                = "Waiting for Elastic Agent to start"
 	waitingForFleetServer          = "Waiting for Elastic Agent to start Fleet Server"
 	defaultFleetServerHost         = "0.0.0.0"
@@ -490,7 +490,7 @@ func (c *enrollCmd) enrollWithBackoff(ctx context.Context, persistentConfig map[
 	const deadline = 10 * time.Minute
 	const frequency = 60 * time.Second
 
-	c.log.Infof("1st enrollment attempt failed, retrying for %s each %s enrolling to URL: %s",
+	c.log.Infof("1st enrollment attempt failed. Retrying for %s, every %s, enrolling to URL: %s",
 		deadline,
 		frequency,
 		c.client.URI())
@@ -877,7 +877,7 @@ func safelyStoreAgentInfo(s saver, reader io.Reader) error {
 	signal := make(chan struct{})
 	backExp := backoff.NewExpBackoff(signal, 100*time.Millisecond, 3*time.Second)
 
-	for i := 0; i <= maxRetriesstoreAgentInfo; i++ {
+	for i := 0; i <= maxRetriesStoreAgentInfo; i++ {
 		backExp.Wait()
 		err = storeAgentInfo(s, reader)
 		if !errors.Is(err, filelock.ErrAppAlreadyRunning) {

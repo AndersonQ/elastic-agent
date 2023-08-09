@@ -47,7 +47,7 @@ func New(path string, opts ...OptionFunc) (v *Vault, err error) {
 	if options.readonly {
 		fi, err := os.Stat(path)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("vault not found: %w", err)
 		}
 		if !fi.IsDir() {
 			return nil, fs.ErrNotExist
@@ -94,9 +94,10 @@ func (v *Vault) Get(key string) ([]byte, error) {
 	v.mx.Lock()
 	defer v.mx.Unlock()
 
-	enc, err := ioutil.ReadFile(v.filepathFromKey(key))
+	keyPath := v.filepathFromKey(key)
+	enc, err := os.ReadFile(keyPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("vault could not read key %s: %w", keyPath, err)
 	}
 
 	return v.decrypt(enc)

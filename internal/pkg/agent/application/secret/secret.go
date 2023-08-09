@@ -102,7 +102,7 @@ func Get(key string, opts ...OptionFunc) (secret Secret, err error) {
 	// open vault readonly, will not create the vault directory or the seed it was not created before
 	v, err := vault.New(options.vaultPath, vault.WithReadonly(true))
 	if err != nil {
-		return secret, err
+		return secret, fmt.Errorf("could not open vault: %w", err)
 	}
 	defer v.Close()
 
