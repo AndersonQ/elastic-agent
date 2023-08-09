@@ -8,7 +8,6 @@ package integration
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -73,22 +72,6 @@ func SetupTest(t *testing.T) *ProxyURL {
 	return p
 }
 
-func TearDownTest(t *testing.T, p *ProxyURL) {
-	t.Helper()
-	if p.fixture == nil {
-		return // nothing to do
-	}
-
-	out, err := p.fixture.Uninstall(context.Background(),
-		&integrationtest.UninstallOpts{Force: true})
-	if err != nil &&
-		!errors.Is(err, integrationtest.ErrNotInstalled) &&
-		!strings.Contains(err.Error(), "no such file or directory") {
-		t.Log(string(out))
-		require.NoError(t, err, "TearDownTest: failed to uninstall agent")
-	}
-}
-
 func TestProxyURL_EnrollProxyAndNoProxyInThePolicy(t *testing.T) {
 	_ = define.Require(t, define.Requirements{
 		Local: false,
@@ -96,9 +79,6 @@ func TestProxyURL_EnrollProxyAndNoProxyInThePolicy(t *testing.T) {
 	})
 
 	p := SetupTest(t)
-	t.Cleanup(func() {
-		TearDownTest(t, p)
-	})
 
 	ackToken := "ackToken-AckTokenTestNoProxyInThePolicy"
 
@@ -139,9 +119,6 @@ func TestProxyURL_EnrollProxyAndEmptyProxyInThePolicy(t *testing.T) {
 	})
 
 	p := SetupTest(t)
-	t.Cleanup(func() {
-		TearDownTest(t, p)
-	})
 
 	ackToken := "AckToken-TestEmptyProxyInThePolicy"
 
@@ -183,9 +160,6 @@ func TestProxyURL_ProxyInThePolicyTakesPrecedence(t *testing.T) {
 	})
 
 	p := SetupTest(t)
-	t.Cleanup(func() {
-		TearDownTest(t, p)
-	})
 
 	ackToken := "AckToken-TestValidProxyInThePolicy"
 
@@ -241,9 +215,6 @@ func TestProxyURL_NoEnrollProxyAndProxyInThePolicy(t *testing.T) {
 	})
 
 	p := SetupTest(t)
-	t.Cleanup(func() {
-		TearDownTest(t, p)
-	})
 	ackToken := "AckToken-TestValidProxyInThePolicy"
 
 	p.policyData.FleetHosts = fmt.Sprintf(`"%s"`, p.fleet.LocalhostURL)
@@ -303,9 +274,6 @@ func TestProxyURL_RemoveProxyFromThePolicy(t *testing.T) {
 	})
 
 	p := SetupTest(t)
-	t.Cleanup(func() {
-		TearDownTest(t, p)
-	})
 
 	ackToken := "AckToken-TestRemoveProxyFromThePolicy"
 
