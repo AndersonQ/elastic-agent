@@ -118,7 +118,7 @@ func (DebianRunner) Copy(ctx context.Context, sshClient *ssh.Client, logger Logg
 	installMage := strings.NewReader(fmt.Sprintf(`cd agent && %s make mage && %s mage integration:prepareOnRemote`, envs, envs))
 	stdOut, errOut, err = sshRunCommand(ctx, sshClient, "bash", nil, installMage)
 	if err != nil {
-		return fmt.Errorf("failed to to perform make mage and prepareOnRemote: %w (stdout: %s, stderr: %s)", err, stdOut, errOut)
+		return fmt.Errorf("failed to perform make mage and prepareOnRemote: %w (stdout: %s, stderr: %s)", err, stdOut, errOut)
 	}
 
 	// determine if the build needs to be replaced on the host
@@ -140,8 +140,21 @@ func (DebianRunner) Copy(ctx context.Context, sshClient *ssh.Client, logger Logg
 
 	if copyBuild {
 		// ensure the existing copies are removed first
-		_, _, _ = sshRunCommand(ctx, sshClient, "rm", []string{"-f", filepath.Base(build.Path)}, nil)
-		_, _, _ = sshRunCommand(ctx, sshClient, "rm", []string{"-f", filepath.Base(build.SHA512Path)}, nil)
+		toRemove := filepath.Base(build.Path)
+		stdOut, errOut, err = sshRunCommand(ctx,
+			sshClient, "sudo", []string{"rm", "-f", toRemove}, nil)
+		if err != nil {
+			return fmt.Errorf("failed to remove %q: %w (stdout: %q, stderr: %q)",
+				toRemove, err, stdOut, errOut)
+		}
+
+		toRemove = filepath.Base(build.SHA512Path)
+		stdOut, errOut, err = sshRunCommand(ctx,
+			sshClient, "sudo", []string{"rm", "-f", toRemove}, nil)
+		if err != nil {
+			return fmt.Errorf("failed to remove %q: %w (stdout: %q, stderr: %q)",
+				toRemove, err, stdOut, errOut)
+		}
 
 		logger.Logf("Copying agent build %s", filepath.Base(build.Path))
 	}
