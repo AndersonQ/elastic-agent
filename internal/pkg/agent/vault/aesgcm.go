@@ -9,6 +9,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"syscall"
 )
 
@@ -95,17 +96,18 @@ func EncryptHex(key string, data []byte) (string, error) {
 func Decrypt(key, data []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not create new AES cipher: %w", err)
 	}
 
 	aesGCM, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cipher.NewGCM errored: %w", err)
 	}
 
 	nonceSize := aesGCM.NonceSize()
 	if len(data) < nonceSize {
-		return nil, syscall.EINVAL
+		return nil, fmt.Errorf("invalid argument: data size smaller than nonce: %v",
+			syscall.EINVAL)
 	}
 	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
 

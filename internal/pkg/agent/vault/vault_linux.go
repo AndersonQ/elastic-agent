@@ -70,7 +70,7 @@ func New(path string, opts ...OptionFunc) (v *Vault, err error) {
 	}, nil
 }
 
-// Close closes the valut store
+// Close closes the vault store
 // Noop on linux
 func (v *Vault) Close() error {
 	return nil
@@ -100,7 +100,11 @@ func (v *Vault) Get(key string) ([]byte, error) {
 		return nil, fmt.Errorf("vault could not read key %s: %w", keyPath, err)
 	}
 
-	return v.decrypt(enc)
+	decKey, err := v.decrypt(enc)
+	if err != nil {
+		return nil, fmt.Errorf("could not decrypt key: %w", err)
+	}
+	return decKey, nil
 }
 
 // Exists checks if the key exists
@@ -135,24 +139,26 @@ func (v *Vault) encrypt(data []byte) ([]byte, error) {
 
 func (v *Vault) decrypt(data []byte) ([]byte, error) {
 	if len(data) < saltSize {
-		return nil, syscall.EINVAL
+		return nil, fmt.Errorf("invalid argument: data size smaller than salt: %v",
+			syscall.EINVAL)
 	}
+
 	salt, data := data[:saltSize], data[saltSize:]
 	key, _, err := deriveKey(v.key, salt)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not derive key: %w", err)
 	}
 	return Decrypt(key, data)
 }
 
-func deriveKey(pw []byte, salt []byte) ([]byte, []byte, error) {
+func deriveKey(pass []byte, salt []byte) ([]byte, []byte, error) {
 	if salt == nil {
 		salt = make([]byte, saltSize)
 		if _, err := rand.Read(salt); err != nil {
 			return nil, nil, err
 		}
 	}
-	return pbkdf2.Key(pw, salt, 12022, 32, sha256.New), salt, nil
+	return pbkdf2.Key(pass, salt, 12022, 32, sha256.New), salt, nil
 }
 
 func (v *Vault) filepathFromKey(key string) string {
