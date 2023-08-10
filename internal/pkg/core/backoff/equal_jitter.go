@@ -47,6 +47,7 @@ func (b *EqualJitterBackoff) NextWait() time.Duration {
 }
 
 // Wait block until either the timer is completed or channel is done.
+// It returns true if the timer hasn't completed yet.
 func (b *EqualJitterBackoff) Wait() bool {
 	backoff := b.NextWait()
 

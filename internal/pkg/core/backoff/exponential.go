@@ -8,9 +8,11 @@ import (
 	"time"
 )
 
-// ExpBackoff exponential backoff, will wait an initial time and exponentially
-// increases the wait time up to a predefined maximum. Resetting Backoff will reset the next sleep
-// timer to the initial backoff duration.
+// ExpBackoff implements an exponential backoff strategy, where it initially
+// waits for a specific duration and then exponentially increases the wait time.
+// This increment continues until it reaches a predefined maximum value.
+// Resetting the backoff will reset the timer for the next sleep to the
+// initial backoff duration.
 type ExpBackoff struct {
 	duration time.Duration
 	done     <-chan struct{}
@@ -21,7 +23,8 @@ type ExpBackoff struct {
 	last time.Time
 }
 
-// NewExpBackoff returns a new exponential backoff.
+// NewExpBackoff returns a new exponential backoff. It will run indefinitely,
+// unless the 'done' channel is closed.
 func NewExpBackoff(done <-chan struct{}, init, max time.Duration) Backoff {
 	return &ExpBackoff{
 		duration: init,
@@ -46,6 +49,7 @@ func (b *ExpBackoff) NextWait() time.Duration {
 }
 
 // Wait block until either the timer is completed or channel is done.
+// It returns true if the timer hasn't completed yet.
 func (b *ExpBackoff) Wait() bool {
 	b.duration = b.NextWait()
 
