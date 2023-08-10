@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -345,13 +346,15 @@ func enroll(streams *cli.IOStreams, cmd *cobra.Command) error {
 	caSHA256str, _ := cmd.Flags().GetString("ca-sha256")
 	caSHA256 := cli.StringToSlice(caSHA256str)
 
-	ctx := handleSignal(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	ctx = handleSignal(ctx)
 
-	// On MacOS Ventura and above, fixing the permissions on enrollment during installation fails with the error:
+	// On macOS Ventura and above, fixing the permissions on enrollment during installation fails with the error:
 	//  Error: failed to fix permissions: chown /Library/Elastic/Agent/data/elastic-agent-c13f91/elastic-agent.app: operation not permitted
 	// This is because we are fixing permissions twice, once during installation and again during the enrollment step.
-	// When we are enrolling as part of installation on MacOS, skip the second attempt to fix permissions.
-	var fixPermissions bool = fromInstall
+	// When we are enrolling as part of installation on macOS, skip the second attempt to fix permissions.
+	var fixPermissions = fromInstall
 	if runtime.GOOS == "darwin" {
 		fixPermissions = false
 	}

@@ -276,7 +276,7 @@ func (c *enrollCmd) Execute(ctx context.Context, streams *cli.IOStreams) error {
 	if c.agentProc == nil {
 		if err = c.daemonReloadWithBackoff(ctx); err != nil {
 			c.log.Errorf("Elastic Agent might not be running; unable to trigger restart: %v", err)
-			return fmt.Errorf("could not reload agent deamon, unable to trigger restart: %v", err)
+			return fmt.Errorf("could not reload agent deamon, unable to trigger restart: %w", err)
 		}
 
 		c.log.Info("Successfully triggered restart on running Elastic Agent.")
@@ -452,8 +452,7 @@ func (c *enrollCmd) daemonReloadWithBackoff(ctx context.Context) error {
 		return nil
 	}
 
-	signal := make(chan struct{})
-	backExp := backoff.NewExpBackoff(signal, 10*time.Second, 1*time.Minute)
+	backExp := backoff.NewExpBackoff(ctx.Done(), 10*time.Second, 1*time.Minute)
 
 	for i := 5; i >= 0; i-- {
 		backExp.Wait()
@@ -464,7 +463,6 @@ func (c *enrollCmd) daemonReloadWithBackoff(ctx context.Context) error {
 		}
 	}
 
-	close(signal)
 	return err
 }
 
@@ -487,35 +485,39 @@ func (c *enrollCmd) enrollWithBackoff(ctx context.Context, persistentConfig map[
 		return nil
 	}
 
-	const deadline = 10 * time.Minute
-	const frequency = 60 * time.Second
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+		deadline, _ = ctx.Deadline()
+	}
 
-	c.log.Infof("1st enrollment attempt failed. Retrying for %s, every %s, enrolling to URL: %s",
-		deadline,
-		frequency,
-		c.client.URI())
-	signal := make(chan struct{})
-	defer close(signal)
-	backExp := backoff.NewExpBackoff(signal, frequency, deadline)
+	c.log.Infof("Retrying enrollment for %s, to URL: %s. 1st enrollment attempt failed: %v",
+		deadline.Sub(time.Now()), c.client.URI(), err)
+	err = nil
 
-	for {
-		retry := false
-		if errors.Is(err, fleetapi.ErrTooManyRequests) {
-			c.log.Warn("Too many requests on the remote server, will retry in a moment.")
-			retry = true
-		} else if errors.Is(err, fleetapi.ErrConnRefused) {
-			c.log.Warn("Remote server is not ready to accept connections, will retry in a moment.")
-			retry = true
-		}
-		if !retry {
-			break
-		}
-		backExp.Wait()
+	backExp := backoff.NewExpBackoff(ctx.Done(), time.Minute, 10*time.Minute)
+	for backExp.Wait() {
 		c.log.Infof("Retrying enrollment to URL: %s", c.client.URI())
+
+		switch {
+		case errors.Is(err, fleetapi.ErrTooManyRequests):
+			c.log.Warn("Too many requests on the remote server, will retry enrolling in a moment.")
+		case errors.Is(err, fleetapi.ErrTooManyRequests):
+			c.log.Warn("Remote server is not ready to accept connections, will retry enrolling in a moment.")
+		default:
+			c.log.Warn("Unexpected enrollment error, will retry enrolling in a moment.")
+		}
+
 		err = c.enroll(ctx, persistentConfig)
 	}
 
-	return err
+	if err != nil {
+		c.log.Errorf("Enrollment failed after several retries: %v", err)
+		return fmt.Errorf("enrollment failed: last error: %w", err)
+	}
+
+	return nil
 }
 
 func (c *enrollCmd) enroll(ctx context.Context, persistentConfig map[string]interface{}) error {
