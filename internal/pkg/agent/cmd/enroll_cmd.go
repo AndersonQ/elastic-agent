@@ -492,31 +492,33 @@ func (c *enrollCmd) enrollWithBackoff(ctx context.Context, persistentConfig map[
 		deadline, _ = ctx.Deadline()
 	}
 
-	c.log.Infof("Retrying enrollment for %s, to URL: %s. 1st enrollment attempt failed: %v",
+	c.log.Infof("Will retry enrollment for %s, to URL: %s. 1st enrollment attempt failed: %v",
 		deadline.Sub(time.Now()), c.client.URI(), err)
-	err = nil
 
 	backExp := backoff.NewExpBackoff(ctx.Done(), time.Minute, 10*time.Minute)
+	var retries int
 	for backExp.Wait() {
+		retries++
 		c.log.Infof("Retrying enrollment to URL: %s", c.client.URI())
+		err = c.enroll(ctx, persistentConfig)
 
 		switch {
 		case errors.Is(err, fleetapi.ErrTooManyRequests):
-			c.log.Warn("Too many requests on the remote server, will retry enrolling in a moment.")
+			c.log.Warn("Enroll retry failed: Too many requests on the remote server, will retry enrolling in a moment.")
 		case errors.Is(err, fleetapi.ErrTooManyRequests):
-			c.log.Warn("Remote server is not ready to accept connections, will retry enrolling in a moment.")
+			c.log.Warn("Enroll retry failed: Remote server is not ready to accept connections, will retry enrolling in a moment.")
 		default:
-			c.log.Warn("Unexpected enrollment error, will retry enrolling in a moment.")
+			c.log.Warnf("Enroll retry failed: %v, will retry enrolling in a moment.",
+				err)
 		}
-
-		err = c.enroll(ctx, persistentConfig)
 	}
 
 	if err != nil {
-		c.log.Errorf("Enrollment failed after several retries: %v", err)
+		c.log.Errorf("Enrollment failed after %s retries: %v", err)
 		return fmt.Errorf("enrollment failed: last error: %w", err)
 	}
 
+	c.log.Info("Successfully enrolled with Fleet Server. Finishing local setup...")
 	return nil
 }
 
