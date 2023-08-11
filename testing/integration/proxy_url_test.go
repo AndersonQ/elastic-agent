@@ -109,7 +109,7 @@ func TestProxyURL_EnrollProxyAndNoProxyInThePolicy(t *testing.T) {
 		require.NoError(t, err, "failed to install agent")
 	}
 
-	p.assertConnectedFleet(t)
+	p.assertConnectedToFleet(t)
 }
 
 func TestProxyURL_EnrollProxyAndEmptyProxyInThePolicy(t *testing.T) {
@@ -150,7 +150,7 @@ func TestProxyURL_EnrollProxyAndEmptyProxyInThePolicy(t *testing.T) {
 		require.NoError(t, err, "failed to install agent")
 	}
 
-	p.assertConnectedFleet(t)
+	p.assertConnectedToFleet(t)
 }
 
 func TestProxyURL_ProxyInThePolicyTakesPrecedence(t *testing.T) {
@@ -190,14 +190,12 @@ func TestProxyURL_ProxyInThePolicyTakesPrecedence(t *testing.T) {
 				URL:             p.fleetNeedsProxyHost,
 				EnrollmentToken: "anythingWillDO",
 			}})
-	t.Log("installation logs:")
-	t.Log(string(out))
 	if err != nil {
-		t.Log(string(out))
+		t.Log("installation logs:\n", string(out))
 		require.NoError(t, err, "failed to install agent")
 	}
 
-	p.assertConnectedFleet(t)
+	p.assertConnectedToFleet(t)
 
 	// ensure the agent is communicating through the proxy set in the policy
 	want := fleetservertest.NewPathCheckin(p.policyData.AgentID)
@@ -255,7 +253,7 @@ func TestProxyURL_NoEnrollProxyAndProxyInThePolicy(t *testing.T) {
 		require.NoError(t, err, "failed to install agent")
 	}
 
-	p.assertConnectedFleet(t)
+	p.assertConnectedToFleet(t)
 
 	// ensure the agent is communicating through the new proxy
 	if !assert.Eventually(t, func() bool {
@@ -312,7 +310,7 @@ func TestProxyURL_RemoveProxyFromThePolicy(t *testing.T) {
 	}
 
 	// assert the agent is actually connected to fleet.
-	p.assertConnectedFleet(t)
+	p.assertConnectedToFleet(t)
 
 	// ensure the agent is communicating through the proxy set in the policy
 	if !assert.Eventually(t, func() bool {
@@ -358,10 +356,10 @@ func TestProxyURL_RemoveProxyFromThePolicy(t *testing.T) {
 	assert.Equal(t, inspect.Fleet.ProxyURL, want)
 
 	// assert, again, the agent is actually connected to fleet.
-	p.assertConnectedFleet(t)
+	p.assertConnectedToFleet(t)
 }
 
-func (p *ProxyURL) assertConnectedFleet(t *testing.T) {
+func (p *ProxyURL) assertConnectedToFleet(t *testing.T) {
 	t.Helper()
 
 	var err error
@@ -373,7 +371,7 @@ func (p *ProxyURL) assertConnectedFleet(t *testing.T) {
 		"want fleet state %s, got %s. agent status: %v",
 		cproto.State_HEALTHY, cproto.State(agentStatus.FleetState), agentStatus) {
 		if err != nil {
-			t.Logf("[assertConnectedFleet] last error from agent status command: %v", err)
+			t.Logf("[assertConnectedToFleet] last error from agent status command: %v", err)
 		}
 	}
 }
