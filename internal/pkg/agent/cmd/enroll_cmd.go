@@ -514,7 +514,7 @@ func (c *enrollCmd) enrollWithBackoff(ctx context.Context, persistentConfig map[
 	}
 
 	if err != nil {
-		c.log.Errorf("Enrollment failed after %s retries: %v", err)
+		c.log.Errorf("Enrollment failed after %d retries: %v", retries, err)
 		return fmt.Errorf("enrollment failed: last error: %w", err)
 	}
 
