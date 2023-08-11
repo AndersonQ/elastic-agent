@@ -183,12 +183,17 @@ func installCmd(streams *cli.IOStreams, cmd *cobra.Command) error {
 	if status != install.PackageInstall {
 		err = install.Install(cfgFile, topPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed installing Elastic Agent: %w", err)
 		}
 
 		defer func() {
 			if err != nil {
-				// _ = install.Uninstall(cfgFile, topPath, "")
+				fmt.Fprintf(streams.Out,
+					"Elastic Agent instalation failed, uninstalling it")
+				// if err := install.Uninstall(cfgFile, topPath, ""); err != nil {
+				// 	fmt.Fprintf(streams.Out,
+				// 		"cleaning up failed, could not uninstall Elastic Agent: %v", err)
+				// }
 			}
 		}()
 
@@ -201,7 +206,12 @@ func installCmd(streams *cli.IOStreams, cmd *cobra.Command) error {
 
 			defer func() {
 				if err != nil {
-					// _ = install.StopService(topPath)
+					fmt.Fprintf(streams.Out,
+						"Elastic Agent instalation failed, stopping service")
+					// if err := install.StopService(topPath); err != nil {
+					// 	fmt.Fprintf(streams.Out,
+					// 		"cleaning up failed, could not stop service Elastic Agent: %v", err)
+					// }
 				}
 			}()
 		}
@@ -224,7 +234,14 @@ func installCmd(streams *cli.IOStreams, cmd *cobra.Command) error {
 		if err != nil {
 			if status != install.PackageInstall {
 				var exitErr *exec.ExitError
-				_ = install.Uninstall(cfgFile, topPath, "")
+
+				fmt.Fprintf(streams.Out,
+					"Elastic Agent entollment failed, uninstalling it")
+				// if err := install.Uninstall(cfgFile, topPath, ""); err != nil {
+				// 	fmt.Fprintf(streams.Out,
+				// 		"cleaning up failed, could not uninstall Elastic Agent: %v", err)
+				// }
+
 				if err != nil && errors.As(err, &exitErr) {
 					return fmt.Errorf("enroll command failed with exit code: %d", exitErr.ExitCode())
 				}
