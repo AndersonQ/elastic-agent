@@ -77,7 +77,7 @@ func TestInstallAndCLIUninstallWithEndpointSecurity(t *testing.T) {
 		Isolate: false,
 		Sudo:    true, // requires Agent installation
 		OS: []define.OS{
-			define.OS{Type: define.Linux},
+			define.OS{Type: define.Linux, Arch: define.AMD64},
 		},
 	})
 
@@ -170,7 +170,7 @@ func TestInstallAndUnenrollWithEndpointSecurity(t *testing.T) {
 		Isolate: false,
 		Sudo:    true, // requires Agent installation
 		OS: []define.OS{
-			{Type: define.Linux},
+			{Type: define.Linux, Arch: define.AMD64},
 		},
 	})
 
@@ -309,7 +309,7 @@ func TestInstallWithEndpointSecurityAndRemoveEndpointIntegration(t *testing.T) {
 		Isolate: false,
 		Sudo:    true, // requires Agent installation
 		OS: []define.OS{
-			{Type: define.Linux},
+			{Type: define.Linux, Arch: define.AMD64},
 		},
 	})
 
