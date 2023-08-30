@@ -12,7 +12,7 @@ import (
 
 // InstallAgent force install the Elastic Agent through agentFixture.
 func InstallAgent(installOpts atesting.InstallOpts, agentFixture *atesting.Fixture) ([]byte, error) {
-	return agentFixture.Install(context.Background(), &installOpts)
+	return agentFixture.Install(context.TODO(), &installOpts)
 }
 
 // InstallStandaloneAgent force install the Elastic Agent through agentFixture.
@@ -21,5 +21,5 @@ func InstallStandaloneAgent(agentFixture *atesting.Fixture) ([]byte, error) {
 		NonInteractive: true,
 		Force:          true,
 	}
-	return agentFixture.Install(context.Background(), &installOpts)
+	return agentFixture.Install(context.TODO(), &installOpts)
 }

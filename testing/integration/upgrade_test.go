@@ -84,24 +84,34 @@ func TestFleetManagedUpgrade(t *testing.T) {
 
 	for _, parsedVersion := range upgradableVersions {
 
-		t.Run(fmt.Sprintf("Upgrade managed agent from %s to %s", parsedVersion, define.Version()), func(t *testing.T) {
-			agentFixture, err := atesting.NewFixture(
-				t,
-				parsedVersion.String(),
-				atesting.WithFetcher(atesting.ArtifactFetcher()),
-			)
-			require.NoError(t, err)
-			err = agentFixture.Prepare(ctx)
-			require.NoError(t, err, "error preparing agent fixture")
+		t.Run(fmt.Sprintf("Upgrade managed agent from %s to %s",
+			parsedVersion, define.Version()),
+			func(t *testing.T) {
+				agentFixture, err := atesting.NewFixture(
+					t,
+					parsedVersion.String(),
+					atesting.WithFetcher(atesting.ArtifactFetcher()),
+				)
+				require.NoError(t, err)
+				err = agentFixture.Prepare(ctx)
+				require.NoError(t, err, "error preparing agent fixture")
 
-			err = agentFixture.Configure(ctx, []byte(fastWatcherCfg))
-			require.NoError(t, err, "error configuring agent fixture")
-			testUpgradeFleetManagedElasticAgent(t, ctx, info, agentFixture, parsedVersion, define.Version())
-		})
+				err = agentFixture.Configure(ctx, []byte(fastWatcherCfg))
+				require.NoError(t, err, "error configuring agent fixture")
+				testUpgradeFleetManagedElasticAgent(t, ctx,
+					info, agentFixture, parsedVersion, define.Version())
+			})
 	}
 }
 
-func testUpgradeFleetManagedElasticAgent(t *testing.T, ctx context.Context, info *define.Info, agentFixture *atesting.Fixture, parsedFromVersion *version.ParsedSemVer, toVersion string) {
+func testUpgradeFleetManagedElasticAgent(
+	t *testing.T,
+	ctx context.Context,
+	info *define.Info,
+	agentFixture *atesting.Fixture,
+	parsedFromVersion *version.ParsedSemVer,
+	toVersion string) {
+
 	kibClient := info.KibanaClient
 	policyUUID := uuid.New().String()
 
@@ -129,7 +139,7 @@ func testUpgradeFleetManagedElasticAgent(t *testing.T, ctx context.Context, info
 	fleetServerURL, err := tools.GetDefaultFleetServerURL(kibClient)
 	require.NoError(t, err)
 
-	t.Log("Enrolling Elastic Agent...")
+	t.Log("Installing Elastic Agent...")
 	var nonInteractiveFlag bool
 	if version_8_2_0.Less(*parsedFromVersion) {
 		nonInteractiveFlag = true
@@ -142,17 +152,13 @@ func testUpgradeFleetManagedElasticAgent(t *testing.T, ctx context.Context, info
 			EnrollmentToken: enrollmentToken.APIKey,
 		},
 	}
-	output, err := tools.InstallAgent(installOpts, agentFixture)
+	output, err := agentFixture.Install(ctx, &installOpts)
 	if err != nil {
 		t.Log(string(output))
 	}
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		t.Log("Un-enrolling Elastic Agent...")
-		assert.NoError(t, tools.UnEnrollAgent(info.KibanaClient))
-	})
+	require.NoError(t, err, "failed to install the agent")
 
-	t.Log(`Waiting for enrolled Agent status to be "online"...`)
+	t.Log(`Waiting for installed Agent status to be "online"...`)
 	require.Eventually(t, tools.WaitForAgentStatus(t, kibClient, "online"), 2*time.Minute, 10*time.Second, "Agent status is not online")
 
 	t.Logf("Upgrade Elastic Agent to version %s...", toVersion)
