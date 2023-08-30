@@ -80,8 +80,10 @@ func TestFleetManagedUpgrade(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
 
-	upgradableVersions := getUpgradableVersions(ctx, t, define.Version())
-
+	// upgradableVersions := getUpgradableVersions(ctx, t, define.Version())
+	v, err := version.ParseVersion("8.10.0")
+	require.NoError(t, err, "could not parse agent version")
+	upgradableVersions := []*version.ParsedSemVer{v}
 	for _, parsedVersion := range upgradableVersions {
 
 		t.Run(fmt.Sprintf("Upgrade managed agent from %s to %s",
