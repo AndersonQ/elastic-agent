@@ -31,6 +31,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/elastic/elastic-agent-libs/kibana"
+	"github.com/elastic/elastic-agent/pkg/testing/tools/check"
 
 	"github.com/elastic/elastic-agent/internal/pkg/agent/application/paths"
 	cmdVersion "github.com/elastic/elastic-agent/internal/pkg/basecmd/version"
@@ -161,14 +162,18 @@ func testUpgradeFleetManagedElasticAgent(
 	require.NoError(t, err, "failed to install the agent")
 
 	t.Log(`Waiting for installed Agent status to be "online"...`)
-	require.Eventually(t, tools.WaitForAgentStatus(t, kibClient, "online"), 2*time.Minute, 10*time.Second, "Agent status is not online")
+	require.Eventually(t, check.FleetAgentStatus(t, kibClient, "online"), 2*time.Minute, 10*time.Second, "Agent status is not online")
 
 	t.Logf("Upgrade Elastic Agent to version %s...", toVersion)
 	err = tools.UpgradeAgent(kibClient, toVersion)
 	require.NoError(t, err)
 
-	t.Log(`Waiting for enrolled Agent status to be "online"...`)
-	require.Eventually(t, tools.WaitForAgentStatus(t, kibClient, "online"), 10*time.Minute, 15*time.Second, "Agent status is not online")
+	t.Log(`Waiting for Agent status to be "online" after upgrade...`)
+	assert.Eventually(t, // do not use require, the version check below must happen
+		check.FleetAgentStatus(t, kibClient, "online"),
+		10*time.Minute,
+		15*time.Second,
+		"Agent status is not 'online'")
 
 	// Upgrade Watcher check disabled until
 	// https://github.com/elastic/elastic-agent/issues/2977 is resolved.
@@ -177,7 +182,7 @@ func testUpgradeFleetManagedElasticAgent(
 	// We remove the `-SNAPSHOT` suffix because, post-upgrade, the version reported
 	// by the Agent will not contain this suffix, even if a `-SNAPSHOT`-suffixed
 	// version was used as the target version for the upgrade.
-	require.Eventually(t, func() bool {
+	assert.Eventually(t, func() bool {
 		t.Log("Getting Agent version...")
 		newVersion, err := tools.GetAgentVersion(kibClient)
 		if err != nil {

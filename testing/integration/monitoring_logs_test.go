@@ -69,7 +69,7 @@ func TestMonitoringLogsShipped(t *testing.T) {
 	require.NoError(t, err)
 	t.Logf("created policy: %s", policy.ID)
 
-	check.ConnectedToFleet(t, agentFixture)
+	check.ConnectedToFleet(t, agentFixture, 5*time.Minute)
 
 	// Stage 2: check indices
 	// This is mostly for debugging

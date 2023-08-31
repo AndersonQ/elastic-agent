@@ -12,6 +12,7 @@ import (
 
 	"github.com/elastic/elastic-agent-libs/kibana"
 	atesting "github.com/elastic/elastic-agent/pkg/testing"
+	"github.com/elastic/elastic-agent/pkg/testing/tools/check"
 
 	"github.com/stretchr/testify/require"
 )
@@ -104,7 +105,7 @@ func InstallAgentForPolicy(t *testing.T, installOpts atesting.InstallOpts, agent
 	// Wait for Agent to be healthy
 	require.Eventually(
 		t,
-		WaitForAgentStatus(t, kibClient, "online"),
+		check.FleetAgentStatus(t, kibClient, "online"),
 		2*time.Minute,
 		10*time.Second,
 		"Elastic Agent status is not online",
