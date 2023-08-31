@@ -598,12 +598,15 @@ func extractCommitHashFromArtifact(t *testing.T, ctx context.Context, artifactVe
 	architecture := runtime.GOARCH
 	suffix, err := atesting.GetPackageSuffix(operatingSystem, architecture)
 	require.NoErrorf(t, err, "error determining suffix for OS %q and arch %q", operatingSystem, architecture)
+
 	prefix := fmt.Sprintf("elastic-agent-%s", artifactVersion.VersionWithPrerelease())
 	pkgName := fmt.Sprintf("%s-%s", prefix, suffix)
 	require.Containsf(t, agentProject.Packages, pkgName, "Artifact API response does not contain pkg %s", pkgName)
+
 	artifactFilePath := filepath.Join(tmpDownloadDir, pkgName)
 	err = atesting.DownloadPackage(ctx, t, http.DefaultClient, agentProject.Packages[pkgName].URL, artifactFilePath)
 	require.NoError(t, err, "error downloading package")
+
 	err = atesting.ExtractArtifact(t, artifactFilePath, tmpDownloadDir)
 	require.NoError(t, err, "error extracting artifact")
 
