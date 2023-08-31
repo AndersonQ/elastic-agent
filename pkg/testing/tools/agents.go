@@ -6,36 +6,14 @@ package tools
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/elastic/elastic-agent-libs/kibana"
 	"github.com/elastic/elastic-agent/pkg/control/v2/client"
 	"github.com/elastic/elastic-agent/pkg/control/v2/cproto"
 )
-
-func DefaultFleetServerURL(client *kibana.Client) (string, error) {
-	req := kibana.ListFleetServerHostsRequest{}
-	resp, err := client.ListFleetServerHosts(context.Background(), req)
-	if err != nil {
-		return "", fmt.Errorf("unable to list fleet server hosts: %w", err)
-	}
-
-	for _, item := range resp.Items {
-		if item.IsDefault {
-			hostURLs := item.HostURLs
-			if len(hostURLs) > 0 {
-				return hostURLs[0], nil
-			}
-		}
-	}
-
-	return "", errors.New("unable to determine default fleet server host")
-}
 
 // WaitForLocalAgentHealthy will keep checking the agent state until it becomes healthy
 // ot the timeout is exceeded. If the agent becomes health, it returns true, if
