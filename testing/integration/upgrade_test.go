@@ -31,8 +31,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/elastic/elastic-agent-libs/kibana"
-	"github.com/elastic/elastic-agent/pkg/testing/tools/check"
-
 	"github.com/elastic/elastic-agent/internal/pkg/agent/application/paths"
 	cmdVersion "github.com/elastic/elastic-agent/internal/pkg/basecmd/version"
 	"github.com/elastic/elastic-agent/internal/pkg/release"
@@ -42,6 +40,8 @@ import (
 	atesting "github.com/elastic/elastic-agent/pkg/testing"
 	"github.com/elastic/elastic-agent/pkg/testing/define"
 	"github.com/elastic/elastic-agent/pkg/testing/tools"
+	"github.com/elastic/elastic-agent/pkg/testing/tools/check"
+	"github.com/elastic/elastic-agent/pkg/testing/tools/fleet"
 	"github.com/elastic/elastic-agent/pkg/version"
 	agtversion "github.com/elastic/elastic-agent/version"
 )
@@ -139,7 +139,7 @@ func testUpgradeFleetManagedElasticAgent(
 	require.NoError(t, err)
 
 	t.Log("Getting default Fleet Server URL...")
-	fleetServerURL, err := tools.GetDefaultFleetServerURL(kibClient)
+	fleetServerURL, err := tools.DefaultFleetServerURL(kibClient)
 	require.NoError(t, err)
 
 	t.Log("Installing Elastic Agent...")
@@ -165,7 +165,7 @@ func testUpgradeFleetManagedElasticAgent(
 	require.Eventually(t, check.FleetAgentStatus(t, kibClient, "online"), 2*time.Minute, 10*time.Second, "Agent status is not online")
 
 	t.Logf("Upgrade Elastic Agent to version %s...", toVersion)
-	err = tools.UpgradeAgent(kibClient, toVersion)
+	err = fleet.UpgradeAgent(kibClient, toVersion)
 	require.NoError(t, err)
 
 	t.Log(`Waiting for Agent status to be "online" after upgrade...`)
@@ -184,7 +184,7 @@ func testUpgradeFleetManagedElasticAgent(
 	// version was used as the target version for the upgrade.
 	assert.Eventually(t, func() bool {
 		t.Log("Getting Agent version...")
-		newVersion, err := tools.GetAgentVersion(kibClient)
+		newVersion, err := fleet.AgentVersion(kibClient)
 		if err != nil {
 			t.Logf("error getting agent version: %v", err)
 			return false

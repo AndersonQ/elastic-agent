@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/elastic/elastic-agent-libs/kibana"
 	atesting "github.com/elastic/elastic-agent/pkg/testing"
 	"github.com/elastic/elastic-agent/pkg/testing/tools/check"
-
-	"github.com/stretchr/testify/require"
 )
 
 // WaitForPolicyRevision returns a niladic function that returns true if the
@@ -84,7 +84,7 @@ func InstallAgentForPolicy(t *testing.T, installOpts atesting.InstallOpts, agent
 	}
 
 	// Get default Fleet Server URL
-	fleetServerURL, err := GetDefaultFleetServerURL(kibClient)
+	fleetServerURL, err := DefaultFleetServerURL(kibClient)
 	if err != nil {
 		return fmt.Errorf("unable to get default Fleet Server URL: %w", err)
 	}
