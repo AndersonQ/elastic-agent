@@ -13,17 +13,22 @@ import (
 	"reflect"
 )
 
-// As is just a helper so user dont have to use multiple imports for errors.
+// Join is just a helper so user don't have to use multiple imports for errors.
+func Join(errs ...error) error {
+	return goerrors.Join(errs...)
+}
+
+// As is just a helper so user don't have to use multiple imports for errors.
 func As(err error, target interface{}) bool {
 	return goerrors.As(err, target)
 }
 
-// Is is just a helper so user dont have to use multiple imports for errors.
+// Is is just a helper so user don't have to use multiple imports for errors.
 func Is(err, target error) bool {
 	return goerrors.Is(err, target)
 }
 
-// Unwrap is just a helper so user dont have to use multiple imports for errors.
+// Unwrap is just a helper so user don't have to use multiple imports for errors.
 func Unwrap(err error) error {
 	return goerrors.Unwrap(err)
 }

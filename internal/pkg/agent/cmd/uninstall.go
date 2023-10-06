@@ -5,6 +5,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -81,11 +82,16 @@ func uninstallCmd(streams *cli.IOStreams, cmd *cobra.Command) error {
 	}
 
 	err = install.Uninstall(paths.ConfigFile(), paths.Top(), uninstallToken)
-	if err != nil {
+	if err != nil || !errors.Is(err, install.ErrOnlyLogs) {
 		return err
 	}
+
 	fmt.Fprintf(streams.Out, "Elastic Agent has been uninstalled.\n")
 
-	_ = install.RemovePath(paths.Top())
+	err = install.RemovePath(paths.Top())
+	if errors.Is(err, install.ErrOnlyLogs) {
+		fmt.Fprintf(streams.Out, "WARNING: Uninstall could not remove some log files,"+
+			"but everything else was removed: %s.\n", err)
+	}
 	return nil
 }

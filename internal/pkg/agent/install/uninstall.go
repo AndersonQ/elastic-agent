@@ -29,6 +29,8 @@ import (
 	"github.com/elastic/elastic-agent/pkg/features"
 )
 
+var ErrOnlyLogs = errors.New("only logs were left over")
+
 // Uninstall uninstalls persistently Elastic Agent on the system.
 func Uninstall(cfgFile, topPath, uninstallToken string) error {
 	// uninstall the current service
@@ -82,8 +84,8 @@ func Uninstall(cfgFile, topPath, uninstallToken string) error {
 	if err != nil {
 		return errors.New(
 			err,
-			fmt.Sprintf("failed to remove installation directory (%s)", paths.Top()),
-			errors.M("directory", paths.Top()))
+			fmt.Sprintf("failed to remove installation directory (%s)", topPath),
+			errors.M("directory", topPath))
 	}
 
 	return nil
@@ -113,6 +115,28 @@ func RemovePath(path string) error {
 		}
 
 		time.Sleep(50 * time.Millisecond)
+	}
+
+	var files []string
+	des, err := os.ReadDir(path)
+	// we want to give more info for the user, if it fails, there is nothing we can do
+	if err == nil {
+		for _, de := range des {
+			if de.IsDir() {
+				continue
+			}
+			files = append(files, de.Name())
+		}
+	}
+
+	onlyLogs := len(files) > 0
+	for _, f := range files {
+		if !strings.HasSuffix(f, ".ndjson") {
+			onlyLogs = false
+		}
+	}
+	if onlyLogs {
+		lastErr = errors.Join(lastErr, ErrOnlyLogs)
 	}
 
 	return fmt.Errorf("timed out while removing %q. Last error: %w", path, lastErr)
