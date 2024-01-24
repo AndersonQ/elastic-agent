@@ -16,10 +16,10 @@ import (
 	"github.com/magefile/mage/sh"
 )
 
-func runCommand(cmd string, args ...string) error {
+func runCommand(cmd string, env map[string]string, args ...string) error {
 	s := strings.Join(append([]string{cmd}, args...), " ")
 	fmt.Printf(">> %s\n", s)
-	err := sh.Run(cmd, args...)
+	err := sh.RunWith(env, cmd, args...)
 	if err != nil {
 		return fmt.Errorf("failed running %s, please fix the issues reported: %w", s, err)
 	}
@@ -29,12 +29,16 @@ func runCommand(cmd string, args ...string) error {
 // Notice Generates NOTICE.txt.
 func Notice() (err error) {
 	fmt.Println("Generating NOTICE")
-	if err := runCommand("go", "mod", "tidy"); err != nil {
+	if err := runCommand("go", map[string]string{"GOWORK": "off"}, "mod", "tidy"); err != nil {
 		return err
 	}
-	if err := runCommand("go", "mod", "download"); err != nil {
+	if err := runCommand("go", map[string]string{"GOWORK": "off"}, "mod", "download"); err != nil {
 		return err
 	}
+
+	// the current environment variables need to be passed to the exec.Cmd as
+	// well.
+	env := append(os.Environ(), "GOWORK=off")
 
 	// piping output of the first command to the second
 	// similar to former Makefile implementation
@@ -47,6 +51,8 @@ func Notice() (err error) {
 	// -noticeOut NOTICE.txt \
 	// -depsOut ""
 	listCmd := exec.Command("go", "list", "-m", "-json", "all")
+	listCmd.Env = env
+
 	licDetectCmd := exec.Command("go", "run", "go.elastic.co/go-licence-detector",
 		"-includeIndirect",
 		"-rules", "dev-tools/notice/rules.json",
@@ -54,6 +60,7 @@ func Notice() (err error) {
 		"-noticeTemplate", "dev-tools/notice/NOTICE.txt.tmpl",
 		"-noticeOut", "NOTICE.txt",
 		"-depsOut", "")
+	licDetectCmd.Env = env
 
 	fmt.Printf(">> %s | %s\n", strings.Join(listCmd.Args, " "), strings.Join(licDetectCmd.Args, " "))
 
