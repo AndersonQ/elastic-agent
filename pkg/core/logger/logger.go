@@ -5,6 +5,7 @@
 package logger
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -70,6 +71,27 @@ func NewFromConfig(name string, cfg *Config, logInternal bool) (*Logger, error) 
 // Use only when a clean logger is needed, and it is known that the logging configuration has already been performed.
 func NewWithoutConfig(name string) *Logger {
 	return logp.NewLogger(name)
+}
+
+func NewInMemory() (*Logger, *bytes.Buffer) {
+	buff := bytes.Buffer{}
+
+	encoderConfig := ecszap.ECSCompatibleEncoderConfig(logp.ConsoleEncoderConfig())
+	encoderConfig.EncodeTime = UtcTimestampEncode
+	encoder := zapcore.NewConsoleEncoder(encoderConfig)
+
+	core := zapcore.NewCore(
+		encoder,
+		zapcore.AddSync(&buff),
+		zap.NewAtomicLevelAt(zap.DebugLevel))
+	ecszap.ECSCompatibleEncoderConfig(logp.ConsoleEncoderConfig())
+
+	logger := logp.NewLogger(
+		"inMemory",
+		zap.WrapCore(func(in zapcore.Core) zapcore.Core {
+			return core
+		}))
+	return logger, &buff
 }
 
 // AddCallerSkip returns new logger with incremented stack frames to skip.
