@@ -49,14 +49,8 @@ func SetupTest(t *testing.T) *ProxyURL {
 	p.fleetNeedsProxyHost = "http://" + fleetHost
 	p.setupFleet(t, p.fleetNeedsProxyHost)
 
-	p.proxy1 = proxytest.New(t,
-		proxytest.WithRewrite(fleetHost, "localhost:"+p.fleet.Port),
-		proxytest.WithRequestLog("proxy-1", t.Logf),
-		proxytest.WithVerboseLog())
-	p.proxy2 = proxytest.New(t,
-		proxytest.WithRewrite(fleetHost, "localhost:"+p.fleet.Port),
-		proxytest.WithRequestLog("proxy-2", t.Logf),
-		proxytest.WithVerboseLog())
+	p.proxy1 = proxytest.New(proxytest.WithRewrite(fleetHost, "localhost:"+p.fleet.Port), proxytest.WithRequestLog("proxy-1", t.Logf), proxytest.WithVerboseLog())
+	p.proxy2 = proxytest.New(proxytest.WithRewrite(fleetHost, "localhost:"+p.fleet.Port), proxytest.WithRequestLog("proxy-2", t.Logf), proxytest.WithVerboseLog())
 
 	f, err := define.NewFixture(t,
 		p.agentVersion,

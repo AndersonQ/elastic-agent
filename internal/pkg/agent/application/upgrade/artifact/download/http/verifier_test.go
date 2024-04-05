@@ -54,11 +54,9 @@ func TestVerify(t *testing.T) {
 		require.NoError(t, err, "could not parse server URL \"%s\"",
 			server.URL)
 
-		proxy := proxytest.New(t,
-			proxytest.WithRewriteFn(func(u *url.URL) {
-				u.Host = serverURL.Host
-			}),
-			proxytest.WithRequestLog("proxy", func(_ string, _ ...any) {}))
+		proxy := proxytest.New(proxytest.WithRewriteFn(func(u *url.URL) {
+			u.Host = serverURL.Host
+		}), proxytest.WithRequestLog("proxy", func(_ string, _ ...any) {}))
 
 		proxyURL, err := url.Parse(proxy.LocalhostURL)
 		require.NoError(t, err, "could not parse server URL \"%s\"",

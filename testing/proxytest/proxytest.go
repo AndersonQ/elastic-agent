@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"testing"
 
 	"github.com/google/uuid"
 )
@@ -103,9 +102,7 @@ func WithTLS(tlsConfig *tls.Config) Option {
 //   - WithRewrite or WithRewriteFn to rewrite the URL before forwarding the request.
 //
 // Check the other With* functions for more options.
-func New(t *testing.T, optns ...Option) *Proxy {
-	t.Helper()
-
+func New(optns ...Option) *Proxy {
 	opts := options{addr: ":0"}
 	for _, o := range optns {
 		o(&opts)
@@ -117,7 +114,7 @@ func New(t *testing.T, optns ...Option) *Proxy {
 
 	l, err := net.Listen("tcp", opts.addr) //nolint:gosec,nolintlint // it's a test
 	if err != nil {
-		t.Fatalf("NewServer failed to create a net.Listener: %v", err)
+		panic(fmt.Errorf("NewServer failed to create a net.Listener: %w", err))
 	}
 
 	p := Proxy{opts: opts}
@@ -144,7 +141,7 @@ func New(t *testing.T, optns ...Option) *Proxy {
 
 	u, err := url.Parse(p.URL)
 	if err != nil {
-		panic(fmt.Sprintf("could parse fleet-server URL: %v", err))
+		panic(fmt.Errorf("could parse fleet-server URL: %w", err))
 	}
 
 	p.Port = u.Port()
