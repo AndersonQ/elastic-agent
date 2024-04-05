@@ -5,6 +5,7 @@
 package proxytest
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
@@ -41,6 +42,7 @@ type options struct {
 	addr        string
 	rewriteHost func(string) string
 	rewriteURL  func(u *url.URL)
+	tlsConfig   *tls.Config
 	// logFn if set will be used to log every request.
 	logFn   func(format string, a ...any)
 	verbose bool
@@ -90,6 +92,12 @@ func WithRewriteFn(f func(u *url.URL)) Option {
 	}
 }
 
+func WithTLS(tlsConfig *tls.Config) Option {
+	return func(o *options) {
+		o.tlsConfig = tlsConfig
+	}
+}
+
 // New returns a new Proxy ready for use. Use:
 //   - WithAddress to set the proxy's address,
 //   - WithRewrite or WithRewriteFn to rewrite the URL before forwarding the request.
@@ -129,6 +137,9 @@ func New(t *testing.T, optns ...Option) *Proxy {
 			opts.logFn(fmt.Sprintf("[%s] DONE %d - %s %s %s %s\n",
 				requestID, w.statusCode, r.Method, r.URL, r.Proto, r.RemoteAddr))
 		})}}
+	if opts.tlsConfig != nil {
+		p.TLS = opts.tlsConfig
+	}
 	p.Start()
 
 	u, err := url.Parse(p.URL)
