@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
 	"strings"
 	"sync"
@@ -136,8 +138,10 @@ func New(optns ...Option) *Proxy {
 		})}}
 	if opts.tlsConfig != nil {
 		p.TLS = opts.tlsConfig
+		p.StartTLS()
+	} else {
+		p.Start()
 	}
-	p.Start()
 
 	u, err := url.Parse(p.URL)
 	if err != nil {
@@ -152,6 +156,36 @@ func New(optns ...Option) *Proxy {
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	bs, err := httputil.DumpRequest(r, true)
+	if err != nil {
+		slog.Error("failed to dump request", "err", err)
+	} else {
+		fmt.Println("===================================================")
+		fmt.Println(string(bs))
+		fmt.Println("===================================================")
+	}
+
+	origReq := r
+	if r.URL.Scheme == "" && strings.HasSuffix(r.URL.Host, ":443") {
+		r.URL.Scheme = "https"
+		r.URL.Host = strings.TrimSuffix(r.URL.Host, ":443")
+	}
+	slog.Info("NewRequest", "url", r.URL)
+	r, err = http.NewRequest(r.Method, r.URL.String(), r.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		msg := fmt.Sprintf("could create new request: %#v", err)
+		slog.Error(msg)
+		_, _ = fmt.Fprint(w, msg)
+		return
+	}
+	// for k, v := range origReq.Header {
+	// 	r.Header[k] = v
+	// }
+	r.Header.Del("Proxy-Connection")
+	r.Header.Del("User-Agent")
+	r.RemoteAddr = origReq.RemoteAddr
+
 	origURL := r.URL.String()
 
 	switch {
@@ -174,16 +208,33 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	r.RequestURI = ""
 
+	bs, err = httputil.DumpRequestOut(r, true)
+	if err != nil {
+		slog.Error("failed to dump request", "err", err)
+	} else {
+		fmt.Println("sent ===================================================")
+		fmt.Println(string(bs))
+		fmt.Println("sent ===================================================")
+	}
+
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		msg := fmt.Sprintf("could not make request: %#v", err.Error())
+		msg := fmt.Sprintf("could not make request: %#v", err)
 		log.Print(msg)
 		_, _ = fmt.Fprint(w, msg)
 		return
 	}
 	defer resp.Body.Close()
 
+	bs, err = httputil.DumpResponse(resp, true)
+	if err != nil {
+		slog.Error("failed to dump request", "err", err)
+	} else {
+		fmt.Println("resp ===================================================")
+		fmt.Println(string(bs))
+		fmt.Println("resp ===================================================")
+	}
 	w.WriteHeader(resp.StatusCode)
 	for k, v := range resp.Header {
 		w.Header()[k] = v
