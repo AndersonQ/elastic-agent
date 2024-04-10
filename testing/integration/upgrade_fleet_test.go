@@ -63,6 +63,16 @@ func TestFleetManagedUpgradePrivileged(t *testing.T) {
 	testFleetManagedUpgrade(t, info, false)
 }
 
+func TestFleetManagedUpgradeToPRBuild(t *testing.T) {
+	info := define.Require(t, define.Requirements{
+		Group: Fleet,
+		Stack: &define.Stack{},
+		Local: false, // requires Agent installation
+		Sudo:  true,  // requires Agent installation
+	})
+	
+}
+
 func testFleetManagedUpgrade(t *testing.T, info *define.Info, unprivileged bool) {
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
