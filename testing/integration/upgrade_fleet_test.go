@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +33,7 @@ import (
 	"github.com/elastic/elastic-agent/pkg/testing/tools/fleettools"
 	"github.com/elastic/elastic-agent/pkg/testing/tools/testcontext"
 	"github.com/elastic/elastic-agent/pkg/version"
+	"github.com/elastic/elastic-agent/testing/pgptest"
 	"github.com/elastic/elastic-agent/testing/upgradetest"
 )
 
@@ -64,13 +66,107 @@ func TestFleetManagedUpgradePrivileged(t *testing.T) {
 }
 
 func TestFleetManagedUpgradeToPRBuild(t *testing.T) {
-	info := define.Require(t, define.Requirements{
+	stack := define.Require(t, define.Requirements{
 		Group: Fleet,
+		OS:    []define.OS{{Type: define.Linux}},
 		Stack: &define.Stack{},
 		Local: false, // requires Agent installation
 		Sudo:  true,  // requires Agent installation
 	})
-	
+	ctx := context.Background()
+
+	tempDir := t.TempDir()
+	dir, binHandler := agentBinaryHandler(t, tempDir)
+
+	endFixture, err := define.NewFixtureFromLocalBuild(t,
+		define.Version(), atesting.WithLogOutput())
+	require.NoError(t, err, "failed creating new fixture")
+
+	pkgSrcPath, err := endFixture.SrcPackage(ctx)
+	require.NoError(t, err, "could not get package source directory")
+	pkgSrcSHAPath := pkgSrcPath + ".sha512"
+
+	_, pkgName := filepath.Split(pkgSrcPath)
+	pkgDstPath := filepath.Join(dir, pkgName)
+	pkgDstSHAPath := pkgDstPath + ".sha512"
+
+	// copy agent package to server directory
+	src, err := os.Open(pkgSrcPath)
+	require.NoError(t, err, "could not src (%q) for copy", pkgSrcPath)
+	srcSHA, err := os.Open(pkgSrcSHAPath)
+	require.NoError(t, err, "could not src (%q) for copy", pkgSrcSHAPath)
+
+	dst, err := os.OpenFile(pkgDstPath, os.O_CREATE|os.O_RDWR, 0664)
+	require.NoError(t, err, "could not open dst (%q) for copy", pkgDstPath)
+	dstSHA, err := os.OpenFile(pkgDstSHAPath, os.O_CREATE|os.O_RDWR, 0664)
+	require.NoError(t, err, "could not open dst sha file (%q) for copy", pkgDstSHAPath)
+
+	_, err = io.Copy(dst, src)
+	require.NoErrorf(t, err, "could not copy %q to %q", src.Name(), dst.Name())
+	_ = src.Close()
+
+	_, err = io.Copy(dstSHA, srcSHA)
+	require.NoErrorf(t, err, "could not copy %q to %q", src.Name(), dst.Name())
+	_ = srcSHA.Close()
+	_ = dstSHA.Close()
+
+	// sign the agent package
+	pubKey, sig := pgptest.Sing(t, dst)
+	dst.Close()
+
+	// save the agent package the signature
+	err = os.WriteFile(pkgDstPath+".asc", sig, 0660)
+	require.NoError(t, err, "could not save agent's package signature")
+
+	// redirect artifacts.elastic.co to mock server
+	etcHosts, err := os.OpenFile("/etc/hosts", os.O_APPEND|os.O_WRONLY, 0644)
+	require.NoError(t, err, "could not open /etc/hosts")
+
+	_, err = etcHosts.WriteString("127.0.0.1 artifacts.elastic.co")
+	require.NoError(t, err, "could not redirect artifacts.elastic.co to mock server using /etc/hosts")
+	require.NoError(t, etcHosts.Close(), "failed closing /etc/hosts")
+
+	// serve the signing public key
+	gpgHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/pgp-keys")
+		_, err := w.Write(pubKey)
+		assert.NoError(t, err, "failed sending sining public key")
+	})
+	// register handlers
+	mux := http.NewServeMux()
+	mux.Handle("/GPG-KEY-elastic-agent", gpgHandler)
+	mux.Handle("/", binHandler)
+
+	server := httptest.NewTLSServer(mux)
+	t.Logf("runnign mock artifacts.elastic.co on %s", server.URL)
+
+	// all is set up. The actual test is below
+	startVer, err := upgradetest.PreviousMinor()
+	require.NoError(t, err, "could not get PreviousMinor agent version")
+
+	startFixture, err := atesting.NewFixture(t, startVer.String())
+	require.NoErrorf(t, err,
+		"could not create start fixture for version %s", startVer.String())
+
+	testUpgradeFleetManagedElasticAgent(ctx, t, stack, startFixture, endFixture, defaultPolicy(), false)
+}
+
+func agentBinaryHandler(t *testing.T, dir string) (string, http.Handler) {
+	downloadAt := filepath.Join(dir, "downloads", "beats", "elastic-agent", "beats", "elastic-agent")
+	err := os.MkdirAll(downloadAt, 0700)
+	require.NoError(t, err, "could not create directory structure for file server")
+
+	// it's useful for debugging
+	dl, err := os.ReadDir(downloadAt)
+	require.NoError(t, err)
+	var files []string
+	for _, d := range dl {
+		files = append(files, d.Name())
+	}
+	fmt.Printf("ArtifactsServer root dir %q, served files %q\n",
+		dir, files)
+
+	return downloadAt, http.FileServer(http.Dir(dir))
 }
 
 func testFleetManagedUpgrade(t *testing.T, info *define.Info, unprivileged bool) {
@@ -265,6 +361,7 @@ func testUpgradeFleetManagedElasticAgent(
 	installOpts := atesting.InstallOpts{
 		NonInteractive: nonInteractiveFlag,
 		Force:          true,
+		Insecure:       true,
 		EnrollOpts: atesting.EnrollOpts{
 			URL:             fleetServerURL,
 			EnrollmentToken: enrollmentToken.APIKey,
