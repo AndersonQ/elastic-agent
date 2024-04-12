@@ -7,7 +7,10 @@
 package integration
 
 import (
+	"bufio"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +22,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/elastic/elastic-agent-libs/kibana"
+	"github.com/elastic/elastic-agent-libs/testing/certutil"
 	atesting "github.com/elastic/elastic-agent/pkg/testing"
 	"github.com/elastic/elastic-agent/pkg/testing/define"
 	"github.com/elastic/elastic-agent/pkg/testing/tools/check"
@@ -76,7 +81,7 @@ func TestFleetManagedUpgradeToPRBuild(t *testing.T) {
 	ctx := context.Background()
 
 	tempDir := t.TempDir()
-	dir, binHandler := agentBinaryHandler(t, tempDir)
+	// tempDir := "/tmp/agent-test"
 
 	endFixture, err := define.NewFixtureFromLocalBuild(t,
 		define.Version(), atesting.WithLogOutput())
@@ -84,13 +89,18 @@ func TestFleetManagedUpgradeToPRBuild(t *testing.T) {
 
 	pkgSrcPath, err := endFixture.SrcPackage(ctx)
 	require.NoError(t, err, "could not get package source directory")
+	t.Log("================pkgSrcPath:", pkgSrcPath)
 	pkgSrcSHAPath := pkgSrcPath + ".sha512"
+	endVersion, err := endFixture.ExecVersion(ctx)
+	require.NoError(t, err, "could not get end binary version")
+
+	dir, binHandler := agentBinaryHandler(t, tempDir, endVersion)
 
 	_, pkgName := filepath.Split(pkgSrcPath)
 	pkgDstPath := filepath.Join(dir, pkgName)
 	pkgDstSHAPath := pkgDstPath + ".sha512"
 
-	// copy agent package to server directory
+	// copy agent package and sha512 file to server directory
 	src, err := os.Open(pkgSrcPath)
 	require.NoError(t, err, "could not src (%q) for copy", pkgSrcPath)
 	srcSHA, err := os.Open(pkgSrcSHAPath)
@@ -99,14 +109,15 @@ func TestFleetManagedUpgradeToPRBuild(t *testing.T) {
 	dst, err := os.OpenFile(pkgDstPath, os.O_CREATE|os.O_RDWR, 0664)
 	require.NoError(t, err, "could not open dst (%q) for copy", pkgDstPath)
 	dstSHA, err := os.OpenFile(pkgDstSHAPath, os.O_CREATE|os.O_RDWR, 0664)
-	require.NoError(t, err, "could not open dst sha file (%q) for copy", pkgDstSHAPath)
+	require.NoError(t, err, "could not open dst (%q) for copy", pkgDstSHAPath)
 
 	_, err = io.Copy(dst, src)
 	require.NoErrorf(t, err, "could not copy %q to %q", src.Name(), dst.Name())
 	_ = src.Close()
 
 	_, err = io.Copy(dstSHA, srcSHA)
-	require.NoErrorf(t, err, "could not copy %q to %q", src.Name(), dst.Name())
+	require.NoErrorf(t, err, "could not copy %q to %q",
+		srcSHA.Name(), dstSHA.Name())
 	_ = srcSHA.Close()
 	_ = dstSHA.Close()
 
@@ -119,26 +130,51 @@ func TestFleetManagedUpgradeToPRBuild(t *testing.T) {
 	require.NoError(t, err, "could not save agent's package signature")
 
 	// redirect artifacts.elastic.co to mock server
-	etcHosts, err := os.OpenFile("/etc/hosts", os.O_APPEND|os.O_WRONLY, 0644)
-	require.NoError(t, err, "could not open /etc/hosts")
-
-	_, err = etcHosts.WriteString("127.0.0.1 artifacts.elastic.co")
-	require.NoError(t, err, "could not redirect artifacts.elastic.co to mock server using /etc/hosts")
-	require.NoError(t, etcHosts.Close(), "failed closing /etc/hosts")
+	appendToEtcHosts(t)
 
 	// serve the signing public key
 	gpgHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/pgp-keys")
+		t.Logf("%s - %s: serving agent signing key", r.Method, r.URL.String())
 		_, err := w.Write(pubKey)
-		assert.NoError(t, err, "failed sending sining public key")
+		assert.NoError(t, err, "failed sending signing public key")
 	})
 	// register handlers
 	mux := http.NewServeMux()
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("it works!\n")) })
 	mux.Handle("/GPG-KEY-elastic-agent", gpgHandler)
 	mux.Handle("/", binHandler)
 
-	server := httptest.NewTLSServer(mux)
+	caPEM, certPEM, err := certutil.NewCAAndCerts("artifacts.elastic.co", "staging.elastic.co")
+	require.NoError(t, err, "could not generate CA and certificate")
+	certPair, err := tls.X509KeyPair(certPEM.Cert, certPEM.Key)
+	require.NoError(t, err, "could not create tls.Certificates from child certificate")
+
+	capool := x509.NewCertPool()
+	capool.AppendCertsFromPEM(caPEM.Cert)
+
+	l, err := net.Listen("tcp", "127.0.0.1:443") //nolint:gosec,nolintlint // it's a test
+	require.NoError(t, err, "failed to create a net.Listener for httptest.Server")
+	server := &httptest.Server{
+		Listener: l,
+		//nolint:gosec,nolintlint // it's a test
+		Config: &http.Server{Handler: mux},
+		TLS: &tls.Config{
+			Certificates: []tls.Certificate{certPair},
+			RootCAs:      capool,
+		},
+	}
+	server.StartTLS()
 	t.Logf("runnign mock artifacts.elastic.co on %s", server.URL)
+
+	// /etc/ssl/certs
+	// add server's CA to system trusted CAs
+	server.Certificate()
+	err = os.WriteFile(
+		"/etc/ssl/certs/TestFleetManagedUpgradeToPRBuild-ca.pem",
+		caPEM.Cert,
+		0644)
+	require.NoError(t, err, "could not add server CA to system CAs")
 
 	// all is set up. The actual test is below
 	startVer, err := upgradetest.PreviousMinor()
@@ -148,25 +184,93 @@ func TestFleetManagedUpgradeToPRBuild(t *testing.T) {
 	require.NoErrorf(t, err,
 		"could not create start fixture for version %s", startVer.String())
 
-	testUpgradeFleetManagedElasticAgent(ctx, t, stack, startFixture, endFixture, defaultPolicy(), false)
+	downloadSource := kibana.DownloadSource{
+		Name: "local-pr-build" + uuid.NewString(),
+		Host: fmt.Sprintf("%s/%s-%s/downloads/",
+			server.URL, endVersion.Binary.Version, endVersion.Binary.Commit[:8]),
+		IsDefault: false, // other tests reuse the stack, let's not mess things up
+	}
+	t.Logf("creating download source %q, using %q.",
+		downloadSource.Name, downloadSource.Host)
+	downloadSrc, err := stack.KibanaClient.CreateDownloadSource(ctx, downloadSource)
+	require.NoError(t, err, "could not create download source")
+
+	policy := defaultPolicy()
+	policy.DownloadSourceID = downloadSrc.Item.ID
+
+	// need to pass the CA to the agent
+	testUpgradeFleetManagedElasticAgent(ctx, t,
+		stack, startFixture, endFixture, policy, false,
+		&atesting.InstallOpts{Insecure: true})
 }
 
-func agentBinaryHandler(t *testing.T, dir string) (string, http.Handler) {
-	downloadAt := filepath.Join(dir, "downloads", "beats", "elastic-agent", "beats", "elastic-agent")
+func appendToEtcHosts(t *testing.T) {
+	etcHosts, err := os.OpenFile("/etc/hosts", os.O_APPEND|os.O_RDWR, 0644)
+	require.NoError(t, err, "could not open /etc/hosts")
+
+	artifactsLine := "127.0.0.1 artifacts.elastic.co"
+	// stagingLine := "127.0.0.1 staging.elastic.co"
+
+	// addArtifactsLine, addStagingLine := true, true
+	addArtifactsLine := true
+	scan := bufio.NewScanner(etcHosts)
+	for scan.Scan() {
+		l := scan.Text()
+		if strings.Contains(l, artifactsLine) {
+			addArtifactsLine = false
+		}
+		// if strings.Contains(l, stagingLine) {
+		// 	addStagingLine = false
+		// }
+	}
+
+	fmt.Println("scanner error:", scan.Err())
+
+	if addArtifactsLine {
+		_, err = etcHosts.WriteString("\n" + artifactsLine)
+		require.NoErrorf(t, err, "could not add %q to /etc/hosts", artifactsLine)
+		fmt.Println("wrote artifactsLine")
+	}
+	// if addStagingLine {
+	// 	_, err = etcHosts.WriteString("\n" + stagingLine)
+	// 	fmt.Println("wrote addStagingLine")
+	// 	require.NoErrorf(t, err, "could not add %q to /etc/hosts", stagingLine)
+	// }
+
+	require.NoError(t, etcHosts.Close(), "failed closing /etc/hosts")
+	return
+}
+
+func agentBinaryHandler(t *testing.T, dir string, endVersion atesting.AgentVersionOutput) (string, http.Handler) {
+	// https://staging.elastic.co/8.13.2-a00e5658/downloads/beats/elastic-agent/elastic-agent-8.13.2-linux-arm64.tar.gz
+
+	downloadAt := filepath.Join(dir,
+		fmt.Sprintf("%s-%s",
+			endVersion.Binary.Version, endVersion.Binary.Commit[:8]),
+		"downloads", "beats", "elastic-agent")
 	err := os.MkdirAll(downloadAt, 0700)
 	require.NoError(t, err, "could not create directory structure for file server")
 
-	// it's useful for debugging
-	dl, err := os.ReadDir(downloadAt)
-	require.NoError(t, err)
-	var files []string
-	for _, d := range dl {
-		files = append(files, d.Name())
-	}
-	fmt.Printf("ArtifactsServer root dir %q, served files %q\n",
-		dir, files)
+	logOnce := sync.OnceFunc(func() {
+		// it's useful for debugging
+		dl, err := os.ReadDir(downloadAt)
+		require.NoError(t, err)
+		var files []string
+		for _, d := range dl {
+			files = append(files, d.Name())
+		}
+		t.Logf("ArtifactsServer root dir %q, served files %q\n",
+			dir, files)
+	})
 
-	return downloadAt, http.FileServer(http.Dir(dir))
+	fileServer := http.FileServer(http.Dir(dir))
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logOnce()
+
+		t.Logf("%s - %s: serving agent file", r.Method, r.URL.String())
+		fileServer.ServeHTTP(w, r)
+	})
+	return downloadAt, handler
 }
 
 func testFleetManagedUpgrade(t *testing.T, info *define.Info, unprivileged bool) {
@@ -206,7 +310,7 @@ func testFleetManagedUpgrade(t *testing.T, info *define.Info, unprivileged bool)
 	t.Logf("Testing Elastic Agent upgrade from %s to %s with Fleet...",
 		define.Version(), endVersionInfo.Binary.String())
 
-	testUpgradeFleetManagedElasticAgent(ctx, t, info, startFixture, endFixture, defaultPolicy(), unprivileged)
+	testUpgradeFleetManagedElasticAgent(ctx, t, info, startFixture, endFixture, defaultPolicy(), unprivileged, nil)
 }
 
 func TestFleetAirGappedUpgradeUnprivileged(t *testing.T) {
@@ -298,7 +402,10 @@ func testFleetAirGappedUpgrade(t *testing.T, stack *define.Info, unprivileged bo
 	policy := defaultPolicy()
 	policy.DownloadSourceID = src.Item.ID
 
-	testUpgradeFleetManagedElasticAgent(ctx, t, stack, fixture, upgradeTo, policy, unprivileged)
+	testUpgradeFleetManagedElasticAgent(
+		ctx, t, stack, fixture, upgradeTo, policy, unprivileged, &atesting.InstallOpts{
+			Insecure: true,
+		})
 }
 
 func testUpgradeFleetManagedElasticAgent(
@@ -308,7 +415,8 @@ func testUpgradeFleetManagedElasticAgent(
 	startFixture *atesting.Fixture,
 	endFixture *atesting.Fixture,
 	policy kibana.AgentPolicy,
-	unprivileged bool) {
+	unprivileged bool,
+	extraInstallOpts *atesting.InstallOpts) {
 	kibClient := info.KibanaClient
 
 	startVersionInfo, err := startFixture.ExecVersion(ctx)
@@ -358,16 +466,21 @@ func testUpgradeFleetManagedElasticAgent(
 	if upgradetest.Version_8_2_0.Less(*startParsedVersion) {
 		nonInteractiveFlag = true
 	}
-	installOpts := atesting.InstallOpts{
-		NonInteractive: nonInteractiveFlag,
-		Force:          true,
-		Insecure:       true,
-		EnrollOpts: atesting.EnrollOpts{
-			URL:             fleetServerURL,
-			EnrollmentToken: enrollmentToken.APIKey,
-		},
-		Privileged: !unprivileged,
+
+	if extraInstallOpts == nil {
+		extraInstallOpts = &atesting.InstallOpts{}
 	}
+	installOpts := *extraInstallOpts
+
+	installOpts.NonInteractive = nonInteractiveFlag
+	installOpts.Force = true
+	installOpts.Insecure = true
+	installOpts.Privileged = !unprivileged
+	installOpts.EnrollOpts = atesting.EnrollOpts{
+		URL:             fleetServerURL,
+		EnrollmentToken: enrollmentToken.APIKey,
+	}
+
 	output, err := startFixture.Install(ctx, &installOpts)
 	require.NoError(t, err, "failed to install start agent [output: %s]", string(output))
 
