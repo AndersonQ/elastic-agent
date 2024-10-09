@@ -291,8 +291,9 @@ func createCaCertificate() (cert *x509.Certificate, certBytes []byte, privateKey
 	return cert, caBytes, caPrivateKey, nil
 }
 
-// utility function to create a new certificate signed by a CA and related key for tests.
-// Both paramenters and returned certificate and key are PEM-encoded blocks.
+// createCertificateSignedByCA is a utility function to create a new certificate
+// signed by a CA and related key for tests.
+// Both parameters and returned certificate and key are PEM-encoded blocks.
 func createCertificateSignedByCA(caCert *x509.Certificate, caPrivateKey *rsa.PrivateKey) (cert *x509.Certificate, certBytes []byte, privateKey *rsa.PrivateKey, err error) {
 	certTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(2024),
