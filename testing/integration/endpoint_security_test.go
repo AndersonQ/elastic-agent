@@ -9,9 +9,12 @@ package integration
 import (
 	"archive/zip"
 	"context"
-
+	"crypto"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -25,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/elastic/elastic-agent-libs/kibana"
+	"github.com/elastic/elastic-agent-libs/testing/certutil"
 	"github.com/elastic/elastic-agent/internal/pkg/agent/application/paths"
 	"github.com/elastic/elastic-agent/pkg/control/v2/client"
 	"github.com/elastic/elastic-agent/pkg/control/v2/cproto"
@@ -33,10 +37,11 @@ import (
 	"github.com/elastic/elastic-agent/pkg/testing/tools"
 	"github.com/elastic/elastic-agent/pkg/testing/tools/fleettools"
 	"github.com/elastic/elastic-agent/pkg/testing/tools/testcontext"
+	"github.com/elastic/elastic-agent/testing/proxytest"
 )
 
 const (
-	endpointHealthPollingTimeout = 2 * time.Minute
+	endpointHealthWaitTimeout = 2 * time.Minute
 )
 
 var protectionTests = []struct {
@@ -52,8 +57,8 @@ var protectionTests = []struct {
 	},
 }
 
-// Tests that the agent can install and uninstall the endpoint-security service while remaining
-// healthy.
+// TestInstallAndCLIUninstallWithEndpointSecurity tests that the agent can
+// install and uninstall the endpoint-security service while remaining healthy.
 //
 // Installing endpoint-security requires a Fleet managed agent with the Elastic Defend integration
 // installed. The endpoint-security service is uninstalled when the agent is uninstalled.
@@ -79,8 +84,9 @@ func TestInstallAndCLIUninstallWithEndpointSecurity(t *testing.T) {
 	}
 }
 
-// Tests that the agent can install and uninstall the endpoint-security service while remaining
-// healthy. In this case endpoint-security is uninstalled because the agent was unenrolled, which
+// TestInstallAndUnenrollWithEndpointSecurity tests that the agent can install
+// and uninstall the endpoint-security service while remaining healthy. In
+// this case endpoint-security is uninstalled because the agent was unenrolled, which
 // triggers the creation of an empty agent policy removing all inputs (only when not force
 // unenrolling). The empty agent policy triggers the uninstall of endpoint because endpoint was
 // removed from the policy.
@@ -105,16 +111,16 @@ func TestInstallAndUnenrollWithEndpointSecurity(t *testing.T) {
 	}
 }
 
-// Tests that the agent can install and uninstall the endpoint-security service
-// after the Elastic Defend integration was removed from the policy
-// while remaining healthy.
+// TestInstallWithEndpointSecurityAndRemoveEndpointIntegration tests that the
+// agent can install and uninstall the endpoint-security service after the
+// Elastic Defend integration was removed from the policy while remaining
+// healthy.
 //
 // Installing endpoint-security requires a Fleet managed agent with the Elastic Defend integration
 // installed. The endpoint-security service is uninstalled the Elastic Defend integration was removed from the policy.
 //
 // Like the CLI uninstall test, the agent is uninstalled from the command line at the end of the test
 // but at this point endpoint should be already uninstalled.
-
 func TestInstallWithEndpointSecurityAndRemoveEndpointIntegration(t *testing.T) {
 	info := define.Require(t, define.Requirements{
 		Group: Fleet,
@@ -202,7 +208,7 @@ func testInstallAndCLIUninstallWithEndpointSecurity(t *testing.T, info *define.I
 	require.NoErrorf(t, err, "Policy Response was: %v", pkgPolicyResp)
 
 	t.Log("Polling for endpoint-security to become Healthy")
-	ctx, cancel = context.WithTimeout(ctx, endpointHealthPollingTimeout)
+	ctx, cancel = context.WithTimeout(ctx, endpointHealthWaitTimeout)
 	defer cancel()
 
 	agentClient := fixture.Client()
@@ -211,7 +217,7 @@ func testInstallAndCLIUninstallWithEndpointSecurity(t *testing.T, info *define.I
 
 	require.Eventually(t,
 		func() bool { return agentAndEndpointAreHealthy(t, ctx, agentClient) },
-		endpointHealthPollingTimeout,
+		endpointHealthWaitTimeout,
 		time.Second,
 		"Endpoint component or units are not healthy.",
 	)
@@ -229,7 +235,7 @@ func testInstallAndUnenrollWithEndpointSecurity(t *testing.T, info *define.Info,
 	require.NoError(t, err)
 
 	t.Log("Polling for endpoint-security to become Healthy")
-	ctx, cancel := context.WithTimeout(context.Background(), endpointHealthPollingTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), endpointHealthWaitTimeout)
 	defer cancel()
 
 	agentClient := fixture.Client()
@@ -238,7 +244,7 @@ func testInstallAndUnenrollWithEndpointSecurity(t *testing.T, info *define.Info,
 
 	require.Eventually(t,
 		func() bool { return agentAndEndpointAreHealthy(t, ctx, agentClient) },
-		endpointHealthPollingTimeout,
+		endpointHealthWaitTimeout,
 		time.Second,
 		"Endpoint component or units are not healthy.",
 	)
@@ -277,7 +283,7 @@ func testInstallAndUnenrollWithEndpointSecurity(t *testing.T, info *define.Info,
 
 			return true
 		},
-		endpointHealthPollingTimeout,
+		endpointHealthWaitTimeout,
 		time.Second,
 		"All components not removed.",
 	)
@@ -311,7 +317,7 @@ func testInstallWithEndpointSecurityAndRemoveEndpointIntegration(t *testing.T, i
 	require.NoErrorf(t, err, "Policy Response was: %#v", pkgPolicyResp)
 
 	t.Log("Polling for endpoint-security to become Healthy")
-	ctx, cancel := context.WithTimeout(context.Background(), endpointHealthPollingTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), endpointHealthWaitTimeout)
 	defer cancel()
 
 	agentClient := fixture.Client()
@@ -320,7 +326,7 @@ func testInstallWithEndpointSecurityAndRemoveEndpointIntegration(t *testing.T, i
 
 	require.Eventually(t,
 		func() bool { return agentAndEndpointAreHealthy(t, ctx, agentClient) },
-		endpointHealthPollingTimeout,
+		endpointHealthWaitTimeout,
 		time.Second,
 		"Endpoint component or units are not healthy.",
 	)
@@ -333,7 +339,7 @@ func testInstallWithEndpointSecurityAndRemoveEndpointIntegration(t *testing.T, i
 	t.Log("Waiting for endpoint to stop")
 	require.Eventually(t,
 		func() bool { return agentIsHealthyNoEndpoint(t, ctx, agentClient) },
-		endpointHealthPollingTimeout,
+		endpointHealthWaitTimeout,
 		time.Second,
 		"Endpoint component or units are still present.",
 	)
@@ -587,7 +593,7 @@ func TestEndpointSecurityCannotSwitchToUnprivileged(t *testing.T) {
 	require.NoErrorf(t, err, "Policy Response was: %v", pkgPolicyResp)
 
 	t.Log("Polling for endpoint-security to become Healthy")
-	healthyCtx, cancel := context.WithTimeout(ctx, endpointHealthPollingTimeout)
+	healthyCtx, cancel := context.WithTimeout(ctx, endpointHealthWaitTimeout)
 	defer cancel()
 
 	agentClient := fixture.Client()
@@ -596,7 +602,7 @@ func TestEndpointSecurityCannotSwitchToUnprivileged(t *testing.T) {
 
 	require.Eventually(t,
 		func() bool { return agentAndEndpointAreHealthy(t, healthyCtx, agentClient) },
-		endpointHealthPollingTimeout,
+		endpointHealthWaitTimeout,
 		time.Second,
 		"Endpoint component or units are not healthy.",
 	)
@@ -663,7 +669,7 @@ func TestEndpointLogsAreCollectedInDiagnostics(t *testing.T) {
 
 	// wait for endpoint to be healthy
 	t.Log("Polling for endpoint-security to become Healthy")
-	pollingCtx, pollingCancel := context.WithTimeout(ctx, endpointHealthPollingTimeout)
+	pollingCtx, pollingCancel := context.WithTimeout(ctx, endpointHealthWaitTimeout)
 	defer pollingCancel()
 
 	require.Eventually(t,
@@ -677,7 +683,7 @@ func TestEndpointLogsAreCollectedInDiagnostics(t *testing.T) {
 			defer agentClient.Disconnect()
 			return agentAndEndpointAreHealthy(t, pollingCtx, agentClient)
 		},
-		endpointHealthPollingTimeout,
+		endpointHealthWaitTimeout,
 		time.Second,
 		"Endpoint component or units are not healthy.",
 	)
@@ -859,7 +865,7 @@ func TestForceInstallOverProtectedPolicy(t *testing.T) {
 	require.NoErrorf(t, err, "Policy Response was: %v", pkgPolicyResp)
 
 	t.Log("Polling for endpoint-security to become Healthy")
-	ctx, cancel = context.WithTimeout(ctx, endpointHealthPollingTimeout)
+	ctx, cancel = context.WithTimeout(ctx, endpointHealthWaitTimeout)
 	defer cancel()
 
 	agentClient := fixture.Client()
@@ -868,7 +874,7 @@ func TestForceInstallOverProtectedPolicy(t *testing.T) {
 
 	require.Eventually(t,
 		func() bool { return agentAndEndpointAreHealthy(t, ctx, agentClient) },
-		endpointHealthPollingTimeout,
+		endpointHealthWaitTimeout,
 		time.Second,
 		"Endpoint component or units are not healthy.",
 	)
@@ -893,4 +899,201 @@ func TestForceInstallOverProtectedPolicy(t *testing.T) {
 	}
 	out, err := fixture.Exec(ctx, args)
 	require.Errorf(t, err, "No error detected, command output: %s", out)
+}
+
+func TestInstallDefendWithMTLSandEncCertKey(t *testing.T) {
+	stack := define.Require(t, define.Requirements{
+		Group: Fleet,
+		Stack: &define.Stack{},
+		Local: false, // requires Agent installation
+		Sudo:  true,  // requires Agent installation
+		OS:    []define.OS{{Type: define.Linux}},
+	})
+	ctx := context.Background()
+	policyID := "000AAA-test-policy-" + uuid.Must(uuid.NewV4()).String()
+
+	policyTmpl := kibana.AgentPolicy{
+		ID:          policyID,
+		Name:        policyID,
+		Namespace:   "default",
+		Description: policyID,
+		MonitoringEnabled: []kibana.MonitoringEnabledOption{
+			kibana.MonitoringEnabledLogs,
+			kibana.MonitoringEnabledMetrics,
+		},
+	}
+	policy, err := stack.KibanaClient.CreatePolicy(ctx, policyTmpl)
+	require.NoErrorf(t, err, "failed creating policy %s", policyID)
+
+	createEnrollmentApiKeyReq := kibana.CreateEnrollmentAPIKeyRequest{
+		PolicyID: policy.ID,
+	}
+	enrollApiKeyResp, err := stack.KibanaClient.CreateEnrollmentAPIKey(ctx, createEnrollmentApiKeyReq)
+	require.NoError(t, err, "failed creating enrollment API key")
+
+	fleetServerURL, err := fleettools.DefaultURL(ctx, stack.KibanaClient)
+	require.NoError(t, err, "failed getting Fleet Server URL")
+
+	pkgPolicyResp, err := installElasticDefendPackage(t, stack, policyTmpl.ID)
+	require.NoErrorf(t, err, "Policy Response was: %v", pkgPolicyResp)
+
+	fleethost := fleetServerURL[8:]
+	fleethostWrong := "fixme.elastic.co"
+
+	// ================================= proxy =================================
+	mtls := generateMTLSCerts(t)
+
+	proxy := proxytest.New(t,
+		proxytest.WithVerboseLog(),
+		proxytest.WithRequestLog("https", t.Logf),
+		proxytest.WithRewrite(fleethostWrong+":443", fleethost),
+		proxytest.WithMITMCA(mtls.proxyCAKey, mtls.proxyCACert),
+		proxytest.WithServerTLSConfig(&tls.Config{
+			Certificates: []tls.Certificate{*mtls.proxyCert},
+			ClientCAs:    mtls.clientCACertPool,
+			ClientAuth:   tls.VerifyClientCertIfGiven,
+			MinVersion:   tls.VersionTLS13,
+		}))
+	err = proxy.StartTLS()
+	require.NoError(t, err, "error starting proxy")
+	t.Logf("proxy running on %s", proxy.URL)
+	defer proxy.Close()
+
+	// ============================= install agent =============================
+	fixture, err := define.NewFixtureFromLocalBuild(t, define.Version())
+	require.NoError(t, err, "could not create agent fixture")
+
+	t.Log("Enrolling the agent in Fleet")
+
+	installOpts := atesting.InstallOpts{
+		NonInteractive: true,
+		Force:          true,
+		Privileged:     true,
+		ProxyURL:       proxy.URL,
+		EnrollOpts: atesting.EnrollOpts{
+			// URL: fleetServerURL,
+			URL:             "https://" + fleethostWrong,
+			EnrollmentToken: enrollApiKeyResp.APIKey,
+
+			CertificateAuthorities: []string{
+				mtls.proxyCAPath,
+				mtls.clientCAPath,
+			},
+			Certificate:   mtls.clientCertPath,
+			Key:           mtls.clientCertKeyPath,
+			KeyPassphrase: mtls.clientCertKeyEncPath,
+		},
+	}
+	out, err := fixture.Install(ctx, &installOpts)
+	require.NoError(t, err, "could not install agent. Output: %s", string(out))
+
+	err = fixture.Client().Connect(ctx)
+	require.NoError(t, err, "could not connect to agent daemon")
+
+	require.Eventually(t,
+		func() bool { return agentAndEndpointAreHealthy(t, ctx, fixture.Client()) },
+		endpointHealthWaitTimeout,
+		time.Second,
+		"Defend or the agent are not healthy.",
+	)
+}
+
+func generateMTLSCerts(t *testing.T) certificatePaths {
+	// Create a temporary directory to store certificates
+	tmpDir := t.TempDir()
+
+	proxyCAKey, proxyCACert, proxyCAPair, err := certutil.NewRootCA(
+		certutil.WithCNPrefix("proxy"))
+	require.NoError(t, err, "error creating root CA")
+
+	proxyCert, proxyCertPair, err := certutil.GenerateChildCert(
+		"localhost",
+		[]net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback, net.IPv6zero},
+		proxyCAKey,
+		proxyCACert,
+		certutil.WithCNPrefix("proxy"))
+	require.NoError(t, err, "error creating server certificate")
+
+	clientCAKey, clientCACert, clientCAPair, err := certutil.NewRSARootCA(
+		certutil.WithCNPrefix("client"))
+	require.NoError(t, err, "error creating root CA")
+	clientCACertPool := x509.NewCertPool()
+	clientCACertPool.AddCert(clientCACert)
+
+	clientCert, clientCertPair, err := certutil.GenerateRSAChildCert(
+		"localhost",
+		[]net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback, net.IPv6zero},
+		clientCAKey,
+		clientCACert,
+		certutil.WithCNPrefix("client"))
+	require.NoError(t, err, "error creating server certificate")
+	passphrase := "aReallySecurePasshrase"
+
+	encKey, err := certutil.EncryptKey(clientCert.PrivateKey, passphrase)
+	require.NoError(t, err, "error encrypting certificate key")
+
+	// =========================== save certificates ===========================
+	proxyCACertFile := filepath.Join(tmpDir, "proxyCA.crt")
+	if err := os.WriteFile(proxyCACertFile, proxyCAPair.Cert, 0644); err != nil {
+		t.Fatal(err)
+	}
+	proxyCAKeyFile := filepath.Join(tmpDir, "proxyCA.key")
+	if err := os.WriteFile(proxyCAKeyFile, proxyCAPair.Key, 0644); err != nil {
+		t.Fatal(err)
+	}
+	proxyCertFile := filepath.Join(tmpDir, "proxyCert.crt")
+	if err := os.WriteFile(proxyCertFile, proxyCertPair.Cert, 0644); err != nil {
+		t.Fatal(err)
+	}
+	proxyKeyFile := filepath.Join(tmpDir, "proxyCert.key")
+	if err := os.WriteFile(proxyKeyFile, proxyCertPair.Key, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	clientCACertFile := filepath.Join(tmpDir, "clientCA.crt")
+	if err := os.WriteFile(clientCACertFile, clientCAPair.Cert, 0644); err != nil {
+		t.Fatal(err)
+	}
+	clientCAKeyFile := filepath.Join(tmpDir, "clientCA.key")
+	if err := os.WriteFile(clientCAKeyFile, clientCAPair.Key, 0644); err != nil {
+		t.Fatal(err)
+	}
+	clientCertCertFile := filepath.Join(tmpDir, "clientCert.crt")
+	if err := os.WriteFile(clientCertCertFile, clientCertPair.Cert, 0644); err != nil {
+		t.Fatal(err)
+	}
+	clientCertKeyFile := filepath.Join(tmpDir, "clientCert.key")
+	if err := os.WriteFile(clientCertKeyFile, clientCertPair.Key, 0644); err != nil {
+		t.Fatal(err)
+	}
+	clientCertKeyEncFile := filepath.Join(tmpDir, "clientCertEnc.key")
+	if err := os.WriteFile(clientCertKeyEncFile, encKey, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	return certificatePaths{
+		proxyCAKey:  proxyCAKey,
+		proxyCACert: proxyCACert,
+		proxyCAPath: proxyCACertFile,
+		proxyCert:   proxyCert,
+
+		clientCACertPool:     clientCACertPool,
+		clientCAPath:         clientCACertFile,
+		clientCertPath:       clientCertCertFile,
+		clientCertKeyPath:    clientCertKeyFile,
+		clientCertKeyEncPath: clientCertKeyEncFile,
+	}
+}
+
+type certificatePaths struct {
+	proxyCAKey  crypto.PrivateKey
+	proxyCACert *x509.Certificate
+	proxyCert   *tls.Certificate
+	proxyCAPath string
+
+	clientCAPath         string
+	clientCACertPool     *x509.CertPool
+	clientCertPath       string
+	clientCertKeyPath    string
+	clientCertKeyEncPath string
 }

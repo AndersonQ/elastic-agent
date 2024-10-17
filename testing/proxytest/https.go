@@ -126,8 +126,9 @@ func (p *Proxy) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 			p.http500Error(clientTLSConn, "failed writing response body", err, log)
 			return
 		}
+		err = resp.Body.Close()
 
-		_ = resp.Body.Close()
+		log.Info("send response to client and closed response body", "resp.Body.Close.err", err)
 	}
 
 	log.Debug("EOF reached, finishing HTTPS handler")

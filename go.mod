@@ -482,3 +482,5 @@ replace (
 	// See https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/12d41f40b0d408b0167633d8095160d3343d46ac/go.mod#L38
 	github.com/openshift/api v3.9.0+incompatible => github.com/openshift/api v0.0.0-20180801171038-322a19404e37
 )
+
+replace github.com/elastic/elastic-agent-libs => github.com/AndersonQ/elastic-agent-libs v0.0.0-20241017083548-b5de4797b9db
