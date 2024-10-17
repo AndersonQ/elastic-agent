@@ -9,9 +9,12 @@ package integration
 import (
 	"archive/zip"
 	"context"
-
+	"crypto"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -25,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/elastic/elastic-agent-libs/kibana"
+	"github.com/elastic/elastic-agent-libs/testing/certutil"
 	"github.com/elastic/elastic-agent/internal/pkg/agent/application/paths"
 	"github.com/elastic/elastic-agent/pkg/control/v2/client"
 	"github.com/elastic/elastic-agent/pkg/control/v2/cproto"
@@ -52,8 +56,8 @@ var protectionTests = []struct {
 	},
 }
 
-// Tests that the agent can install and uninstall the endpoint-security service while remaining
-// healthy.
+// TestInstallAndCLIUninstallWithEndpointSecurity tests that the agent can
+// install and uninstall the endpoint-security service while remaining healthy.
 //
 // Installing endpoint-security requires a Fleet managed agent with the Elastic Defend integration
 // installed. The endpoint-security service is uninstalled when the agent is uninstalled.
@@ -79,8 +83,9 @@ func TestInstallAndCLIUninstallWithEndpointSecurity(t *testing.T) {
 	}
 }
 
-// Tests that the agent can install and uninstall the endpoint-security service while remaining
-// healthy. In this case endpoint-security is uninstalled because the agent was unenrolled, which
+// TestInstallAndUnenrollWithEndpointSecurity tests that the agent can install
+// and uninstall the endpoint-security service while remaining healthy. In
+// this case endpoint-security is uninstalled because the agent was unenrolled, which
 // triggers the creation of an empty agent policy removing all inputs (only when not force
 // unenrolling). The empty agent policy triggers the uninstall of endpoint because endpoint was
 // removed from the policy.
@@ -105,16 +110,16 @@ func TestInstallAndUnenrollWithEndpointSecurity(t *testing.T) {
 	}
 }
 
-// Tests that the agent can install and uninstall the endpoint-security service
-// after the Elastic Defend integration was removed from the policy
-// while remaining healthy.
+// TestInstallWithEndpointSecurityAndRemoveEndpointIntegration tests that the
+// agent can install and uninstall the endpoint-security service after the
+// Elastic Defend integration was removed from the policy while remaining
+// healthy.
 //
 // Installing endpoint-security requires a Fleet managed agent with the Elastic Defend integration
 // installed. The endpoint-security service is uninstalled the Elastic Defend integration was removed from the policy.
 //
 // Like the CLI uninstall test, the agent is uninstalled from the command line at the end of the test
 // but at this point endpoint should be already uninstalled.
-
 func TestInstallWithEndpointSecurityAndRemoveEndpointIntegration(t *testing.T) {
 	info := define.Require(t, define.Requirements{
 		Group: Fleet,
@@ -131,6 +136,154 @@ func TestInstallWithEndpointSecurityAndRemoveEndpointIntegration(t *testing.T) {
 			testInstallWithEndpointSecurityAndRemoveEndpointIntegration(t, info, tc.protected)
 		})
 	}
+}
+
+type certificatePaths struct {
+	serverCAPair     certutil.Pair
+	serverCertPair   certutil.Pair
+	proxyCAPair      certutil.Pair
+	proxyCertPair    certutil.Pair
+	clientCAPair     certutil.Pair
+	clientCertPair   certutil.Pair
+	proxyCAKey       crypto.PrivateKey
+	proxyCACert      *x509.Certificate
+	serverCACertPool *x509.CertPool
+	clientCACertPool *x509.CertPool
+	proxyCert        *tls.Certificate
+}
+
+func generatemTLSCerts(t *testing.T) certificatePaths {
+	// Create a temporary directory to store certificates
+	tmpDir := t.TempDir()
+
+	// ========================= generate certificates =========================
+	serverCAKey, serverCACert, serverCAPair, err := certutil.NewRootCA(
+		certutil.WithCNPrefix("server"))
+	require.NoError(t, err, "error creating root CA")
+
+	_, serverCertPair, err := certutil.GenerateChildCert(
+		"localhost",
+		[]net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback, net.IPv6zero},
+		serverCAKey,
+		serverCACert, certutil.WithCNPrefix("server"))
+	require.NoError(t, err, "error creating server certificate")
+	serverCACertPool := x509.NewCertPool()
+	serverCACertPool.AddCert(serverCACert)
+
+	proxyCAKey, proxyCACert, proxyCAPair, err := certutil.NewRootCA(
+		certutil.WithCNPrefix("proxy"))
+	require.NoError(t, err, "error creating root CA")
+
+	proxyCert, proxyCertPair, err := certutil.GenerateChildCert(
+		"localhost",
+		[]net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback, net.IPv6zero},
+		proxyCAKey,
+		proxyCACert,
+		certutil.WithCNPrefix("proxy"))
+	require.NoError(t, err, "error creating server certificate")
+
+	clientCAKey, clientCACert, clientCAPair, err := certutil.NewRootCA(
+		certutil.WithCNPrefix("client"))
+	require.NoError(t, err, "error creating root CA")
+	clientCACertPool := x509.NewCertPool()
+	clientCACertPool.AddCert(clientCACert)
+
+	_, clientCertPair, err := certutil.GenerateChildCert(
+		"localhost",
+		[]net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback, net.IPv6zero},
+		clientCAKey,
+		clientCACert,
+		certutil.WithCNPrefix("client"))
+	require.NoError(t, err, "error creating server certificate")
+
+	// =========================== save certificates ===========================
+	serverCACertFile := filepath.Join(tmpDir, "serverCA.crt")
+	if err := os.WriteFile(serverCACertFile, serverCAPair.Cert, 0644); err != nil {
+		t.Fatal(err)
+	}
+	serverCAKeyFile := filepath.Join(tmpDir, "serverCA.key")
+	if err := os.WriteFile(serverCAKeyFile, serverCAPair.Key, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	proxyCACertFile := filepath.Join(tmpDir, "proxyCA.crt")
+	if err := os.WriteFile(proxyCACertFile, proxyCAPair.Cert, 0644); err != nil {
+		t.Fatal(err)
+	}
+	proxyCAKeyFile := filepath.Join(tmpDir, "proxyCA.key")
+	if err := os.WriteFile(proxyCAKeyFile, proxyCAPair.Key, 0644); err != nil {
+		t.Fatal(err)
+	}
+	proxyCertFile := filepath.Join(tmpDir, "proxyCert.crt")
+	if err := os.WriteFile(proxyCertFile, proxyCertPair.Cert, 0644); err != nil {
+		t.Fatal(err)
+	}
+	proxyKeyFile := filepath.Join(tmpDir, "proxyCert.key")
+	if err := os.WriteFile(proxyKeyFile, proxyCertPair.Key, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	clientCACertFile := filepath.Join(tmpDir, "clientCA.crt")
+	if err := os.WriteFile(clientCACertFile, clientCAPair.Cert, 0644); err != nil {
+		t.Fatal(err)
+	}
+	clientCAKeyFile := filepath.Join(tmpDir, "clientCA.key")
+	if err := os.WriteFile(clientCAKeyFile, clientCAPair.Key, 0644); err != nil {
+		t.Fatal(err)
+	}
+	clientCertCertFile := filepath.Join(tmpDir, "clientCert.crt")
+	if err := os.WriteFile(clientCertCertFile, clientCertPair.Cert, 0644); err != nil {
+		t.Fatal(err)
+	}
+	clientCertKeyFile := filepath.Join(tmpDir, "clientCert.key")
+	if err := os.WriteFile(clientCertKeyFile, clientCertPair.Key, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	return certificatePaths{
+		serverCACertPool: serverCACertPool,
+		serverCAPair:     serverCAPair,
+		serverCertPair:   serverCertPair,
+
+		proxyCAKey:    proxyCAKey,
+		proxyCACert:   proxyCACert,
+		proxyCAPair:   proxyCAPair,
+		proxyCertPair: proxyCertPair,
+		proxyCert:     proxyCert,
+
+		clientCACertPool: clientCACertPool,
+		clientCAPair:     clientCAPair,
+		clientCertPair:   clientCertPair,
+	}
+}
+
+func TestInstallDefendWithMTLSandEncCertKey(t *testing.T) {
+	// mtls := generatemTLSCerts(t)
+	//
+	// proxy := proxytest.New(t,
+	// 	proxytest.WithVerboseLog(),
+	// 	proxytest.WithRequestLog("https", t.Logf),
+	// 	proxytest.WithRewrite(targetHost+":443", server.URL[8:]),
+	// 	proxytest.WithMITMCA(mtls.proxyCAKey, mtls.proxyCACert),
+	// 	proxytest.WithHTTPClient(&http.Client{
+	// 		Transport: &http.Transport{
+	// 			TLSClientConfig: &tls.Config{
+	// 				RootCAs:    mtls.serverCACertPool,
+	// 				MinVersion: tls.VersionTLS13,
+	// 			},
+	// 		},
+	// 	}),
+	// 	proxytest.WithServerTLSConfig(&tls.Config{
+	// 		Certificates: []tls.Certificate{*mtls.proxyCert},
+	// 		ClientCAs:    mtls.clientCACertPool,
+	// 		ClientAuth:   tls.VerifyClientCertIfGiven,
+	// 		MinVersion:   tls.VersionTLS13,
+	// 	}))
+	// err = proxy.StartTLS()
+	// require.NoError(t, err, "error starting proxy")
+	// t.Logf("proxy running on %s", proxy.LocalhostURL)
+	// defer proxy.Close()
+
 }
 
 // installSecurityAgent is a helper function to install an elastic-agent in priviliged mode with the force+non-interactve flags.

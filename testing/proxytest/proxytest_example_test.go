@@ -24,6 +24,8 @@ import (
 
 // TestRunHTTPSProxy is an example of how to use the proxytest outside tests,
 // and it instructs how to perform a request through the proxy using cURL.
+// From the repo's root, run this test with:
+// go test -tags example -v -run TestRunHTTPSProxy$ ./testing/proxytest
 func TestRunHTTPSProxy(t *testing.T) {
 	// Create a temporary directory to store certificates
 	tmpDir := t.TempDir()
@@ -53,8 +55,6 @@ func TestRunHTTPSProxy(t *testing.T) {
 		proxyCACert,
 		certutil.WithCNPrefix("proxy"))
 	require.NoError(t, err, "error creating server certificate")
-	proxyCACertPool := x509.NewCertPool()
-	proxyCACertPool.AddCert(proxyCACert)
 
 	clientCAKey, clientCACert, clientCAPair, err := certutil.NewRootCA(
 		certutil.WithCNPrefix("client"))
