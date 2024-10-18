@@ -965,37 +965,60 @@ func TestInstallDefendWithMTLSandEncCertKey(t *testing.T) {
 
 	t.Log("Enrolling the agent in Fleet")
 
-	installOpts := atesting.InstallOpts{
-		NonInteractive: true,
-		Force:          true,
-		Privileged:     true,
-		ProxyURL:       proxy.URL,
-		EnrollOpts: atesting.EnrollOpts{
-			// URL: fleetServerURL,
-			URL:             "https://" + fleethostWrong,
-			EnrollmentToken: enrollApiKeyResp.APIKey,
-
-			CertificateAuthorities: []string{
-				mtls.proxyCAPath,
-				mtls.clientCAPath,
-			},
-			Certificate:   mtls.clientCertPath,
-			Key:           mtls.clientCertKeyPath,
-			KeyPassphrase: mtls.clientCertKeyEncPath,
+	tcs := []struct {
+		Name          string
+		Certificate   string
+		Key           string
+		KeyPassphrase string
+	}{
+		{
+			Name:        "with-plain-text-key",
+			Certificate: mtls.clientCertPath,
+			Key:         mtls.clientCertKeyPath,
 		},
+		{
+			Name:          "with-passphrase-projected-key",
+			Certificate:   mtls.clientCertPath,
+			Key:           mtls.clientCertKeyEncPath,
+			KeyPassphrase: mtls.clientCertKeyPassPath,
+		}}
+
+	for _, tc := range tcs {
+		t.Run(tc.Name, func(t *testing.T) {
+			installOpts := atesting.InstallOpts{
+				NonInteractive: true,
+				Force:          true,
+				Privileged:     true,
+				ProxyURL:       proxy.URL,
+				EnrollOpts: atesting.EnrollOpts{
+					// URL: fleetServerURL,
+					URL:             "https://" + fleethostWrong,
+					EnrollmentToken: enrollApiKeyResp.APIKey,
+
+					CertificateAuthorities: []string{
+						mtls.proxyCAPath,
+						mtls.clientCAPath,
+					},
+					Certificate:   tc.Certificate,
+					Key:           tc.Key,
+					KeyPassphrase: tc.KeyPassphrase,
+				},
+			}
+
+			out, err := fixture.Install(ctx, &installOpts)
+			require.NoError(t, err, "could not install agent. Output: %s", string(out))
+
+			err = fixture.Client().Connect(ctx)
+			require.NoError(t, err, "could not connect to agent daemon")
+
+			require.Eventually(t,
+				func() bool { return agentAndEndpointAreHealthy(t, ctx, fixture.Client()) },
+				endpointHealthWaitTimeout,
+				time.Second,
+				"Defend or the agent are not healthy.",
+			)
+		})
 	}
-	out, err := fixture.Install(ctx, &installOpts)
-	require.NoError(t, err, "could not install agent. Output: %s", string(out))
-
-	err = fixture.Client().Connect(ctx)
-	require.NoError(t, err, "could not connect to agent daemon")
-
-	require.Eventually(t,
-		func() bool { return agentAndEndpointAreHealthy(t, ctx, fixture.Client()) },
-		endpointHealthWaitTimeout,
-		time.Second,
-		"Defend or the agent are not healthy.",
-	)
 }
 
 func generateMTLSCerts(t *testing.T) certificatePaths {
@@ -1070,6 +1093,10 @@ func generateMTLSCerts(t *testing.T) certificatePaths {
 	if err := os.WriteFile(clientCertKeyEncFile, encKey, 0644); err != nil {
 		t.Fatal(err)
 	}
+	clientCertKeyPassFile := filepath.Join(tmpDir, "clientCertKey.pass")
+	if err := os.WriteFile(clientCertKeyEncFile, []byte(passphrase), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	return certificatePaths{
 		proxyCAKey:  proxyCAKey,
@@ -1077,11 +1104,12 @@ func generateMTLSCerts(t *testing.T) certificatePaths {
 		proxyCAPath: proxyCACertFile,
 		proxyCert:   proxyCert,
 
-		clientCACertPool:     clientCACertPool,
-		clientCAPath:         clientCACertFile,
-		clientCertPath:       clientCertCertFile,
-		clientCertKeyPath:    clientCertKeyFile,
-		clientCertKeyEncPath: clientCertKeyEncFile,
+		clientCACertPool:      clientCACertPool,
+		clientCAPath:          clientCACertFile,
+		clientCertPath:        clientCertCertFile,
+		clientCertKeyPath:     clientCertKeyFile,
+		clientCertKeyEncPath:  clientCertKeyEncFile,
+		clientCertKeyPassPath: clientCertKeyPassFile,
 	}
 }
 
@@ -1091,9 +1119,10 @@ type certificatePaths struct {
 	proxyCert   *tls.Certificate
 	proxyCAPath string
 
-	clientCAPath         string
-	clientCACertPool     *x509.CertPool
-	clientCertPath       string
-	clientCertKeyPath    string
-	clientCertKeyEncPath string
+	clientCAPath          string
+	clientCACertPool      *x509.CertPool
+	clientCertPath        string
+	clientCertKeyPath     string
+	clientCertKeyEncPath  string
+	clientCertKeyPassPath string
 }
