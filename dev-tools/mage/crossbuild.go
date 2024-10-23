@@ -6,7 +6,6 @@ package mage
 
 import (
 	"fmt"
-	"go/build"
 	"log"
 	"os"
 	"path/filepath"
@@ -322,8 +321,8 @@ func (b GolangCrossBuilder) Build() error {
 	}
 	if CrossBuildMountModcache {
 		// Mount $GOPATH/pkg/mod into the container, read-only.
-		hostDir := filepath.Join(build.Default.GOPATH, "pkg", "mod")
-		args = append(args, "-v", hostDir+":/go/pkg/mod:ro")
+		// hostDir := filepath.Join(build.Default.GOPATH, "pkg", "mod")
+		// args = append(args, "-v", hostDir+":/go/pkg/mod:ro")
 	}
 
 	args = append(args,

@@ -50,8 +50,12 @@ var injectFleetServerInput = config.MustNewConfigFrom(map[string]interface{}{
 
 // FleetServerComponentModifier modifies the comps to inject extra information from the policy into
 // the Fleet Server component and units needed to run Fleet Server correctly.
-func FleetServerComponentModifier(serverCfg *configuration.FleetServerConfig) coordinator.ComponentsModifier {
+func FleetServerComponentModifier(serverCfg *configuration.FleetServerConfig, log *logger.Logger) coordinator.ComponentsModifier {
+
 	return func(comps []component.Component, _ map[string]interface{}) ([]component.Component, error) {
+		log.Infow("FleetServerComponentModifier: received config",
+			"anderson", "anderson",
+			"serverCfg", serverCfg)
 		for i, comp := range comps {
 			if comp.InputSpec != nil && comp.InputSpec.InputType == fleetServer && comp.Err == nil {
 				if serverCfg == nil {
@@ -91,6 +95,9 @@ func FleetServerComponentModifier(serverCfg *configuration.FleetServerConfig) co
 							if err != nil {
 								return nil, err
 							}
+							log.Infow("FleetServerComponentModifier: final config",
+								"anderson", "anderson",
+								"unitCfg", unitCfg)
 							unit.Config = unitCfg
 						}
 						comp.Units[j] = unit

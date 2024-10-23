@@ -27,7 +27,7 @@ import (
 
 func TestFleetServerComponentModifier_NoServerConfig(t *testing.T) {
 	cfg := map[string]interface{}{}
-	modifier := FleetServerComponentModifier(nil)
+	modifier := FleetServerComponentModifier(nil, nil)
 	fleetServerInputSource, err := structpb.NewStruct(map[string]interface{}{
 		"id":   "fleet-server",
 		"type": "fleet-server",
@@ -114,7 +114,7 @@ func TestFleetServerComponentModifier(t *testing.T) {
 			},
 		},
 	}
-	modifier := FleetServerComponentModifier(cfg)
+	modifier := FleetServerComponentModifier(cfg, nil)
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

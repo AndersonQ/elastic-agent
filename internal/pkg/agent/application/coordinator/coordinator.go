@@ -6,6 +6,7 @@ package coordinator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -1323,6 +1324,19 @@ func (c *Coordinator) generateComponentModel() (err error) {
 	// Filter any disallowed inputs/outputs from the components
 	comps = c.filterByCapabilities(comps)
 
+	c.logger.Infow("generateComponentModel before modifiers", "anderson", "anderson")
+	bs, err := json.Marshal(comps)
+	if err != nil {
+		c.logger.Infow("generateComponentModel before comps as go struct",
+			"anderson", "anderson",
+			"comps", comps)
+	} else {
+		c.logger.Infow("generateComponentModel before comps",
+			"anderson", "anderson",
+			"comps", string(bs))
+
+	}
+
 	for _, modifier := range c.modifiers {
 		comps, err = modifier(comps, cfg)
 		if err != nil {
@@ -1337,6 +1351,18 @@ func (c *Coordinator) generateComponentModel() (err error) {
 	lastComponentModel := c.componentModel
 	c.componentModel = comps
 
+	c.logger.Infow("generateComponentModel after modifiers", "anderson", "anderson")
+	bs, err = json.Marshal(comps)
+	if err != nil {
+		c.logger.Infow("generateComponentModel after comps as go struct",
+			"anderson", "anderson",
+			"comps", comps)
+	} else {
+		c.logger.Infow("generateComponentModel after comps",
+			"anderson", "anderson",
+			"comps", string(bs))
+
+	}
 	c.checkAndLogUpdate(lastComponentModel)
 
 	return nil
