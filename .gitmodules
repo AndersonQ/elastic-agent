@@ -1,4 +1,4 @@
 [submodule "beats"]
 	path = beats
 	url = https://github.com/AndersonQ/beats.git
-	branch = 44780-growing-fingerprint
+	branch = 44780-growing-fingerprint-prefix-match-short-only
